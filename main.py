@@ -80,6 +80,12 @@ def resolver_integral(datos: InputDatos):
         )
         sumatoria_general_tex = f"$$ {latex(serie_general)} $$"
 
+        # ✨ Explicación textual automática después de la sumatoria
+        explicacion_taylor = (
+            f"**Para la función** \\( {latex(f)} \\), "
+            f"**el desarrollo en serie de Taylor alrededor de** \\( x = {datos.a} \\) **es:**"
+        )
+
         # Serie truncada hasta n términos (forma simbólica exacta)
         terminos_taylor = []
         for i in range(datos.n_terminos):
@@ -118,6 +124,7 @@ def resolver_integral(datos: InputDatos):
         return {
             "primitiva_real": F_exacta_tex,
             "serie_taylor_general": sumatoria_general_tex,
+            "explicacion_taylor_general": explicacion_taylor,
             "serie_taylor_finita": f_series_tex,
             "integral_definida_exacta": integral_definida_tex,
             "integral_definida_valor": resultado_exacto_tex,
