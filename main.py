@@ -4,7 +4,7 @@ import numpy as np
 from sympy import (
     symbols, sympify, integrate, series, lambdify, N,
     solveset, Interval, oo, log, sin, cos, exp, diff, factorial,
-    limit, Sum, S
+    limit, Sum, S, latex, simplify
 )
 from scipy.integrate import simpson, quad
 import random
@@ -57,7 +57,7 @@ def resolver_integral(datos: InputDatos):
 
         try:
             F_exacta = integrate(f, x)
-            F_exacta_tex = f"$$ {F_exacta} $$"
+            F_exacta_tex = f"$$ {latex(F_exacta)} $$"
         except:
             F_exacta = "No tiene primitiva elemental"
             F_exacta_tex = "No tiene primitiva elemental"
@@ -67,27 +67,33 @@ def resolver_integral(datos: InputDatos):
             if resultado_exacto in [oo, -oo]:
                 raise HTTPException(status_code=400, detail="La integral tiene un valor infinito.")
             resultado_exacto_val = float(N(resultado_exacto))
-            resultado_exacto_tex = f"$$ {resultado_exacto} $$"
+            resultado_exacto_tex = f"$$ {latex(resultado_exacto)} $$"
         else:
             resultado_exacto = integrate(f, (x, datos.a, datos.b))
             resultado_exacto_val = float(N(resultado_exacto))
-            resultado_exacto_tex = f"$$ {resultado_exacto} $$"
+            resultado_exacto_tex = f"$$ {latex(resultado_exacto)} $$"
 
-        # Serie de Taylor general
-        sumatoria_general = Sum(
+        # Serie de Taylor general (expresión simbólica infinita)
+        serie_general = Sum(
             diff(f, x, n).subs(x, datos.a) / factorial(n) * (x - datos.a)**n,
             (n, 0, oo)
-        ).doit()
+        )
+        sumatoria_general_tex = f"$$ {latex(serie_general)} $$"
 
-        # Serie de Taylor truncada hasta n_terminos
-        f_series = sum([
-            diff(f, x, i).subs(x, datos.a) / factorial(i) * (x - datos.a)**i
-            for i in range(datos.n_terminos)
-        ])
+        # Serie truncada hasta n términos (forma simbólica exacta)
+        terminos_taylor = []
+        for i in range(datos.n_terminos):
+            deriv_i = diff(f, x, i)
+            coef_i = simplify(deriv_i.subs(x, datos.a) / factorial(i))
+            term_i = coef_i * (x - datos.a)**i
+            terminos_taylor.append(term_i)
+
+        f_series = sum(terminos_taylor)
+        f_series_tex = f"$$ {latex(f_series)} $$"
         F_aproximada = integrate(f_series, x)
-        F_aproximada_tex = f"$$ {F_aproximada} $$"
+        F_aproximada_tex = f"$$ {latex(F_aproximada)} $$"
 
-        integral_definida_tex = f"$$ \\int_{{{datos.a}}}^{{{datos.b}}} {f} \\, dx $$"
+        integral_definida_tex = f"$$ \\int_{{{datos.a}}}^{{{datos.b}}} {latex(f)} \\, dx $$"
 
         puntos = np.linspace(datos.a, datos.b, 1000)
         y_vals = f_lambda(puntos)
@@ -111,8 +117,8 @@ def resolver_integral(datos: InputDatos):
 
         return {
             "primitiva_real": F_exacta_tex,
-            "serie_taylor_general": f"$$ {sumatoria_general} $$",
-            "serie_taylor_finita": f"$$ {f_series} $$",
+            "serie_taylor_general": sumatoria_general_tex,
+            "serie_taylor_finita": f_series_tex,
             "integral_definida_exacta": integral_definida_tex,
             "integral_definida_valor": resultado_exacto_tex,
             "valor_numerico_exacto": resultado_exacto_val,
@@ -127,58 +133,3 @@ def resolver_integral(datos: InputDatos):
 
     except Exception as e:
         return {"error": str(e)}
-
-# Funciones especiales detectables
-def obtener_definiciones_especiales(expr):
-    definiciones = []
-
-    if "Si" in str(expr):
-        definiciones.append({
-            "funcion": "Si(x)",
-            "latex": r"\mathrm{Si}(x) = \int_0^x \frac{\sin(t)}{t} \, dt",
-            "descripcion": "La función seno integral aparece como primitiva de sin(x)/x. No tiene forma elemental, pero está perfectamente definida mediante una integral."
-        })
-
-    if "Li" in str(expr):
-        definiciones.append({
-            "funcion": "Li(x)",
-            "latex": r"\mathrm{Li}(x) = \int_0^x \frac{dt}{\log(t)}",
-            "descripcion": "La función logaritmo integral aparece al calcular la primitiva de 1/log(x). Es una función especial importante en teoría de números."
-        })
-
-    if "erf" in str(expr):
-        definiciones.append({
-            "funcion": "erf(x)",
-            "latex": r"\mathrm{erf}(x) = \frac{2}{\sqrt{\pi}} \int_0^x e^{-t^2} \, dt",
-            "descripcion": "La función error aparece como primitiva de exp(-x²). Es clave en estadísticas y distribución normal."
-        })
-
-    if "gamma" in str(expr):
-        definiciones.append({
-            "funcion": "Gamma(x)",
-            "latex": r"\Gamma(x) = \int_0^\infty t^{x-1} e^{-t} \, dt",
-            "descripcion": "La función Gamma generaliza el factorial a números reales y complejos."
-        })
-
-    if "beta" in str(expr):
-        definiciones.append({
-            "funcion": "Beta(x, y)",
-            "latex": r"B(x, y) = \int_0^1 t^{x-1} (1 - t)^{y-1} \, dt",
-            "descripcion": "La función Beta está relacionada con la función Gamma y aparece en el cálculo de probabilidades."
-        })
-
-    if "zeta" in str(expr):
-        definiciones.append({
-            "funcion": "Zeta(s)",
-            "latex": r"\zeta(s) = \sum_{n=1}^{\infty} \frac{1}{n^s}",
-            "descripcion": "La función Zeta de Riemann es clave en la teoría de números, especialmente en la distribución de los números primos."
-        })
-
-    if "besselj" in str(expr):
-        definiciones.append({
-            "funcion": "J_n(x)",
-            "latex": r"J_n(x) = \frac{1}{\pi} \int_0^\pi \cos(n \theta - x \sin \theta) \, d\theta",
-            "descripcion": "Las funciones de Bessel son soluciones de la ecuación diferencial de Bessel, usada en problemas de física."
-        })
-
-    return definiciones
