@@ -7,6 +7,9 @@ from scipy.integrate import simpson, quad
 app = FastAPI()
 x = symbols('x')
 
+# Número máximo de términos para evitar errores con series demasiado largas
+MAX_TERMINOS = 10
+
 class InputDatos(BaseModel):
     funcion: str
     a: float
@@ -39,13 +42,18 @@ def resolver_integral(datos: InputDatos):
             F_exacta = "No tiene primitiva elemental"
             F_exacta_tex = "No tiene primitiva elemental"
 
-        # Serie de Taylor general (infinita)
-        sumatoria_general = Sum(diff(f, x, n).subs(x, datos.a) / factorial(n) * (x - datos.a)**n, (n, 0, oo)).doit()
+        # Calcular la serie de Taylor hasta el número de términos permitido
+        n_terminos = min(datos.n_terminos, MAX_TERMINOS)
+        f_series = series(f, x, datos.a, n_terminos + 1).removeO()  # Serie de Taylor hasta n términos
 
-        # Serie de Taylor hasta n términos
-        f_series = series(f, x, datos.a, datos.n_terminos + 1).removeO()  # Serie de Taylor hasta n términos
-        F_aproximada = integrate(f_series, x)
-        F_aproximada_tex = f"$$ {F_aproximada} $$"
+        # Sumar los términos hasta el orden n-1
+        suma_terminos = ' + '.join([
+            f"{diff(f, x, n).subs(x, datos.a) / factorial(n)} * (x - {datos.a})^{n}"
+            for n in range(n_terminos)
+        ])
+
+        # Formato de la serie de Taylor infinita
+        sumatoria_general = f"$$ \\sum_{{n=0}}^{\\infty} \\frac{{f^{{(n)}}(a)}}{{n!}} (x - a)^n $$"  # Sumatoria general
 
         # Integral definida exacta
         resultado_exacto = integrate(f, (x, datos.a, datos.b))
@@ -62,9 +70,9 @@ def resolver_integral(datos: InputDatos):
 
         return {
             "primitiva_real": F_exacta_tex,
-            "serie_taylor_general": f"$$ {sumatoria_general} $$",  # Sumatoria infinita
-            "serie_taylor_finita": f"$$ {f_series} $$",  # Serie truncada hasta n términos
-            "integral_definida_exacta": f"$$ {resultado_exacto} $$",
+            "serie_taylor_general": sumatoria_general,  # Añadido la sumatoria general
+            "serie_taylor_finita": f"$$ {suma_terminos} $$",  # Suma de los primeros términos
+            "integral_definida_exacta": f"$$ \\int_{{{datos.a}}}^{{{datos.b}}} {str(f)} dx $$",
             "valor_numerico_exacto": resultado_exacto_val,
             "metodos_numericos": {
                 "simpson": integral_simpson,
