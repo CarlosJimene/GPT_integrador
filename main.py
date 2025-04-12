@@ -55,6 +55,7 @@ def resolver_integral(datos: InputDatos):
             except:
                 continue
 
+        # === Primitiva ===
         try:
             F_exacta = integrate(f, x)
             F_exacta_tex = f"$$ {latex(F_exacta)} $$"
@@ -62,6 +63,22 @@ def resolver_integral(datos: InputDatos):
             F_exacta = "No tiene primitiva elemental"
             F_exacta_tex = "No tiene primitiva elemental"
 
+        # === Explicación de función especial si aparece en la primitiva ===
+        funciones_especiales = []
+        if "erf" in str(F_exacta):
+            funciones_especiales.append({
+                "funcion": "erf(x)",
+                "latex": r"\mathrm{erf}(x) = \frac{2}{\sqrt{\pi}} \int_0^x e^{-t^2} \, dt",
+                "descripcion": "La función error aparece como primitiva de \( e^{-x^2} \). Es una función especial sin forma elemental cerrada."
+            })
+        if "Si" in str(F_exacta):
+            funciones_especiales.append({
+                "funcion": "Si(x)",
+                "latex": r"\mathrm{Si}(x) = \int_0^x \frac{\sin(t)}{t} \, dt",
+                "descripcion": "La función seno integral aparece como primitiva de \( \frac{\sin(x)}{x} \)."
+            })
+
+        # === Integral definida ===
         if str(datos.a) == "inf" or str(datos.b) == "inf":
             resultado_exacto = limit(integrate(f, (x, datos.a, datos.b)), x, oo)
             if resultado_exacto in [oo, -oo]:
@@ -73,30 +90,30 @@ def resolver_integral(datos: InputDatos):
             resultado_exacto_val = float(N(resultado_exacto))
             resultado_exacto_tex = f"$$ {latex(resultado_exacto)} $$"
 
-        #### CENTRO DE TAYLOR: POR DEFECTO a = 0 ####
+        #### Taylor centrado por defecto en x = 0 ####
         a_taylor = 0
 
-        # Serie general simbólica (expresión formal)
+        # === Serie general ===
         serie_general = Sum(
             diff(f, x, n).subs(x, a_taylor) / factorial(n) * (x - a_taylor)**n,
             (n, 0, oo)
         )
         sumatoria_general_tex = f"$$ {latex(serie_general)} $$"
 
-        # Texto explicativo
         explicacion_taylor = (
             f"**Para la función** \\( {latex(f)} \\), "
             f"**el desarrollo en serie de Taylor alrededor de** \\( x = {a_taylor} \\) **es:**"
         )
 
-        # Serie truncada como suma simbólica explítica (no desarrollada como polinomio)
+        # === Serie truncada como suma exacta ===
         terminos = []
         for i in range(datos.n_terminos):
             deriv_i = diff(f, x, i).subs(x, a_taylor)
             term = simplify(deriv_i / factorial(i)) * (x - a_taylor)**i
             terminos.append(term)
 
-        f_series_sumada = " + ".join([latex(term) for term in terminos])
+        # LaTeX de la serie truncada + ...
+        f_series_sumada = " + ".join([latex(term) for term in terminos]) + r" + \cdots"
         f_series_tex = f"$$ {latex(f)} = {f_series_sumada} $$"
 
         # Integral de la aproximación
@@ -128,6 +145,7 @@ def resolver_integral(datos: InputDatos):
 
         return {
             "primitiva_real": F_exacta_tex,
+            "funciones_especiales": funciones_especiales,
             "serie_taylor_general": sumatoria_general_tex,
             "explicacion_taylor_general": explicacion_taylor,
             "serie_taylor_finita": f_series_tex,
