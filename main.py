@@ -183,7 +183,7 @@ def obtener_definiciones_especiales(expr):
             "descripcion": "La función Zeta de Riemann es clave en la teoría de números, especialmente en la distribución de los números primos."
         })
 
-    # Función Bessel
+    # Función Bessel C(x)
     if "besselj" in str(expr):
         definiciones.append({
             "funcion": "J_n(x)",
