@@ -84,7 +84,7 @@ def resolver_integral(datos: InputDatos):
             f_series += term
             n += 1
             # Si el valor absoluto del término es menor que la tolerancia, paramos
-            if abs(term) < datos.tolerancia:
+            if abs(term) < datos.tolerancia or n > datos.n_terminos:
                 break
 
         F_aproximada = integrate(f_series, x)
