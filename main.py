@@ -1,5 +1,7 @@
 from fastapi import FastAPI, HTTPException
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
+from typing import Union
 import numpy as np
 from sympy import (
     symbols, sympify, integrate, series, lambdify, N,
@@ -7,37 +9,72 @@ from sympy import (
     limit, Sum, S, latex, simplify
 )
 from scipy.integrate import simpson, quad
+import matplotlib.pyplot as plt
+import sympy as sp
+import os
 import random
 
 app = FastAPI()
 
-# Declaración simbólica de variables
+# Servir carpeta estática
+os.makedirs("static", exist_ok=True)
+app.mount("/static", StaticFiles(directory="static"), name="static")
+
+# Declaración simbólica
 x, n = symbols('x n')
 
-# Modelo de entrada
+# Modelo extendido para aceptar expresiones simbólicas en a y b
 class InputDatos(BaseModel):
     funcion: str
-    a: float
-    b: float
+    a: Union[str, float]
+    b: Union[str, float]
     n_terminos: int = Field(default=10, ge=1, le=20)
     tolerancia: float = Field(default=1e-6, ge=1e-10)
 
-    @classmethod
-    def validate(cls, value):
-        if value.a >= value.b:
-            raise ValueError("El límite inferior debe ser menor que el límite superior.")
-        return value
+# Función para graficar f(x) y su serie de Taylor
+def generar_grafica_serie_taylor(expr, n_terminos=10, ruta_salida="static/taylor.png"):
+    x = sp.Symbol('x')
+    f = expr
+    taylor_expr = sum([
+        sp.simplify(sp.diff(f, x, i).subs(x, 0) / sp.factorial(i)) * x**i
+        for i in range(n_terminos)
+    ])
+    f_lamb = sp.lambdify(x, f, 'numpy')
+    taylor_lamb = sp.lambdify(x, taylor_expr, 'numpy')
+    X = np.linspace(-1.5, 1.5, 400)
+    Y_f = f_lamb(X)
+    Y_taylor = taylor_lamb(X)
+    plt.figure(figsize=(10, 6))
+    plt.plot(X, Y_f, label=r"$f(x)$", color='blue', linewidth=2)
+    plt.plot(X, Y_taylor, label=f"Serie de Taylor (orden {n_terminos})", color='red', linestyle='--')
+    plt.title("Comparación entre $f(x)$ y su serie de Taylor en $x=0$")
+    plt.xlabel("x")
+    plt.ylabel("f(x)")
+    plt.axhline(0, color='gray', linestyle=':')
+    plt.axvline(0, color='gray', linestyle=':')
+    plt.legend()
+    plt.grid(True)
+    plt.tight_layout()
+    plt.savefig(ruta_salida)
+    plt.close()
 
 @app.post("/resolver-integral")
 def resolver_integral(datos: InputDatos):
     try:
+        # Evaluar límites simbólicos a y b
+        try:
+            a_eval = float(sympify(datos.a))
+            b_eval = float(sympify(datos.b))
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Límites no válidos: {e}")
+        if a_eval >= b_eval:
+            raise HTTPException(status_code=400, detail="El límite inferior debe ser menor que el límite superior.")
+
+        # Interpretar la función
         try:
             f = sympify(datos.funcion)
         except Exception as e:
             raise HTTPException(status_code=400, detail=f"Función matemática no válida: {e}")
-
-        if datos.a >= datos.b:
-            raise HTTPException(status_code=400, detail="El límite inferior debe ser menor que el límite superior.")
 
         if str(f) == 'sin(x)/x':
             def f_lambda(x_val):
@@ -45,17 +82,16 @@ def resolver_integral(datos: InputDatos):
         else:
             f_lambda = lambdify(x, f, modules=['numpy'])
 
-        posibles_sing = solveset(1/f, x, domain=Interval(datos.a, datos.b))
+        posibles_sing = solveset(1/f, x, domain=Interval(a_eval, b_eval))
         advertencias = []
         for p in posibles_sing:
             try:
                 val = float(p.evalf())
-                if datos.a < val < datos.b:
+                if a_eval < val < b_eval:
                     advertencias.append("⚠️ La función tiene una posible singularidad dentro del intervalo.")
             except:
                 continue
 
-        # === Primitiva ===
         try:
             F_exacta = integrate(f, x)
             F_exacta_tex = f"$$ {latex(F_exacta)} $$"
@@ -63,7 +99,6 @@ def resolver_integral(datos: InputDatos):
             F_exacta = "No tiene primitiva elemental"
             F_exacta_tex = "No tiene primitiva elemental"
 
-        # === Explicación de función especial si aparece en la primitiva ===
         funciones_especiales = []
         if "erf" in str(F_exacta):
             funciones_especiales.append({
@@ -78,22 +113,18 @@ def resolver_integral(datos: InputDatos):
                 "descripcion": "La función seno integral aparece como primitiva de \( \frac{\sin(x)}{x} \)."
             })
 
-        # === Integral definida ===
-        if str(datos.a) == "inf" or str(datos.b) == "inf":
-            resultado_exacto = limit(integrate(f, (x, datos.a, datos.b)), x, oo)
+        if str(a_eval) == "inf" or str(b_eval) == "inf":
+            resultado_exacto = limit(integrate(f, (x, a_eval, b_eval)), x, oo)
             if resultado_exacto in [oo, -oo]:
                 raise HTTPException(status_code=400, detail="La integral tiene un valor infinito.")
             resultado_exacto_val = float(N(resultado_exacto))
             resultado_exacto_tex = f"$$ {latex(resultado_exacto)} $$"
         else:
-            resultado_exacto = integrate(f, (x, datos.a, datos.b))
+            resultado_exacto = integrate(f, (x, a_eval, b_eval))
             resultado_exacto_val = float(N(resultado_exacto))
             resultado_exacto_tex = f"$$ {latex(resultado_exacto)} $$"
 
-        #### Taylor centrado por defecto en x = 0 ####
         a_taylor = 0
-
-        # === Serie general ===
         serie_general = Sum(
             diff(f, x, n).subs(x, a_taylor) / factorial(n) * (x - a_taylor)**n,
             (n, 0, oo)
@@ -105,31 +136,28 @@ def resolver_integral(datos: InputDatos):
             f"**el desarrollo en serie de Taylor alrededor de** \\( x = {a_taylor} \\) **es:**"
         )
 
-        # === Serie truncada como suma exacta ===
         terminos = []
         for i in range(datos.n_terminos):
             deriv_i = diff(f, x, i).subs(x, a_taylor)
             term = simplify(deriv_i / factorial(i)) * (x - a_taylor)**i
             terminos.append(term)
 
-        # LaTeX de la serie truncada + ...
         f_series_sumada = " + ".join([latex(term) for term in terminos]) + r" + \cdots"
         f_series_tex = f"$$ {latex(f)} = {f_series_sumada} $$"
 
-        # Integral de la aproximación
         f_series_expr = sum(terminos)
         F_aproximada = integrate(f_series_expr, x)
         F_aproximada_tex = f"$$ {latex(F_aproximada)} $$"
 
-        integral_definida_tex = f"$$ \\int_{{{datos.a}}}^{{{datos.b}}} {latex(f)} \\, dx $$"
+        integral_definida_tex = f"$$ \\int_{{{a_eval}}}^{{{b_eval}}} {latex(f)} \\, dx $$"
 
-        puntos = np.linspace(datos.a, datos.b, 1000)
+        puntos = np.linspace(a_eval, b_eval, 1000)
         y_vals = f_lambda(puntos)
-        dx = (datos.b - datos.a) / 1000
+        dx = (b_eval - a_eval) / 1000
 
         integral_simpson = simpson(y_vals, dx=dx)
-        integral_romberg, _ = quad(f_lambda, datos.a, datos.b)
-        integral_gauss, _ = quad(f_lambda, datos.a, datos.b)
+        integral_romberg, _ = quad(f_lambda, a_eval, b_eval)
+        integral_gauss, _ = quad(f_lambda, a_eval, b_eval)
 
         def monte_carlo_integration(f, a, b, n_samples=10000):
             total = 0
@@ -140,8 +168,10 @@ def resolver_integral(datos: InputDatos):
 
         integral_montecarlo = monte_carlo_integration(
             lambda x_val: f_lambda(np.array([x_val]))[0],
-            datos.a, datos.b
+            a_eval, b_eval
         )
+
+        generar_grafica_serie_taylor(f, datos.n_terminos)
 
         return {
             "primitiva_real": F_exacta_tex,
@@ -158,7 +188,8 @@ def resolver_integral(datos: InputDatos):
                 "cuadratura_gaussiana": integral_gauss,
                 "montecarlo": integral_montecarlo,
             },
-            "advertencias": advertencias
+            "advertencias": advertencias,
+            "grafica_taylor": "/static/taylor.png"
         }
 
     except Exception as e:
