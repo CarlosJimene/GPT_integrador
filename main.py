@@ -3,7 +3,6 @@ from pydantic import BaseModel, Field
 import numpy as np
 from sympy import symbols, sympify, integrate, series, lambdify, N, solveset, Interval, oo, log, sin, cos, exp, diff, factorial, limit, Sum
 from scipy.integrate import simpson, quad
-from concurrent.futures import ThreadPoolExecutor
 import random
 
 app = FastAPI()
@@ -183,7 +182,7 @@ def obtener_definiciones_especiales(expr):
             "descripcion": "La función Zeta de Riemann es clave en la teoría de números, especialmente en la distribución de los números primos."
         })
 
-    # Función Bessel C(x)
+    # Función Bessel
     if "besselj" in str(expr):
         definiciones.append({
             "funcion": "J_n(x)",
