@@ -12,8 +12,8 @@ class InputDatos(BaseModel):
     funcion: str
     a: float
     b: float
-    n_terminos: int = Field(default=10, ge=1, le=20)  # Asegurarse que el número de términos es entre 1 y 20
-    tolerancia: float = Field(default=1e-6, ge=1e-10)  # Asegurarse que la tolerancia es razonable
+    n_terminos: int = Field(default=10, ge=1, le=20)  # Limitar número de términos entre 1 y 20
+    tolerancia: float = Field(default=1e-6, ge=1e-10)  # Asegurarse de que la tolerancia es razonable
 
     # Validaciones adicionales
     @classmethod
@@ -76,7 +76,17 @@ def resolver_integral(datos: InputDatos):
         sumatoria_general = Sum(diff(f, x, n).subs(x, datos.a) / factorial(n) * (x - datos.a)**n, (n, 0, oo)).doit()
 
         # Ajuste dinámico de la serie de Taylor según la tolerancia
-        f_series = series(f, x, datos.a, datos.n_terminos).removeO()
+        f_series = series(f, x, datos.a, 1).removeO()  # Comienza con 1 término
+        n = 1
+        while True:
+            # Calculamos el siguiente término
+            term = diff(f, x, n).subs(x, datos.a) / factorial(n) * (x - datos.a)**n
+            f_series += term
+            n += 1
+            # Si el valor absoluto del término es menor que la tolerancia, paramos
+            if abs(term) < datos.tolerancia:
+                break
+
         F_aproximada = integrate(f_series, x)
         F_aproximada_tex = f"$$ {F_aproximada} $$"
 
