@@ -53,7 +53,7 @@ def resolver_integral(datos: InputDatos):
         ])
 
         # Formato de la serie de Taylor infinita
-        sumatoria_general = f"$$ \\sum_{{n=0}}^{\\infty} \\frac{{f^{{(n)}}(a)}}{{n!}} (x - a)^n $$"  # Sumatoria general
+        sumatoria_general = r"$$ \sum_{n=0}^{\infty} \frac{f^{(n)}(a)}{n!} (x - a)^n $$"  # Sumatoria general en LaTeX
 
         # Integral definida exacta
         resultado_exacto = integrate(f, (x, datos.a, datos.b))
@@ -70,7 +70,7 @@ def resolver_integral(datos: InputDatos):
 
         return {
             "primitiva_real": F_exacta_tex,
-            "serie_taylor_general": sumatoria_general,  # Añadido la sumatoria general
+            "serie_taylor_general": sumatoria_general,  # Sumatoria infinita
             "serie_taylor_finita": f"$$ {suma_terminos} $$",  # Suma de los primeros términos
             "integral_definida_exacta": f"$$ \\int_{{{datos.a}}}^{{{datos.b}}} {str(f)} dx $$",
             "valor_numerico_exacto": resultado_exacto_val,
