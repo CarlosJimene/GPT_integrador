@@ -77,13 +77,13 @@ def resolver_integral(datos: InputDatos):
 
         # Ajuste dinámico de la serie de Taylor según la tolerancia
         f_series = series(f, x, datos.a, 1).removeO()  # Comienza con 1 término
-        n = 1
+        n = 1  # Inicialización de n
         while True:
             # Calculamos el siguiente término
             term = diff(f, x, n).subs(x, datos.a) / factorial(n) * (x - datos.a)**n
             f_series += term
             n += 1
-            # Si el valor absoluto del término es menor que la tolerancia, paramos
+            # Si el valor absoluto del término es menor que la tolerancia o si n excede el número de términos máximo, paramos
             if abs(term) < datos.tolerancia or n > datos.n_terminos:
                 break
 
