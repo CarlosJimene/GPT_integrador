@@ -34,7 +34,7 @@ def resolver_integral(datos: InputDatos):
         # Primitiva exacta
         try:
             F_exacta = integrate(f, x)
-            F_exacta_tex = f"$$ {F_exacta} $$"
+            F_exacta_tex = f"$$ \\int {f} dx $$"
         except:
             F_exacta = "No tiene primitiva elemental"
             F_exacta_tex = "No tiene primitiva elemental"
@@ -45,12 +45,12 @@ def resolver_integral(datos: InputDatos):
 
         # Serie de Taylor hasta n términos
         f_series = series(f, x, datos.a, datos.n_terminos + 1).removeO()  # Serie de Taylor hasta n términos
-        F_aproximada = integrate(f_series, x)
-        F_aproximada_tex = f"$$ {F_aproximada} $$"
+        f_series_tex = ' + '.join([f"{diff(f, x, n).subs(x, datos.a) / factorial(n)} (x - a)^{n}" for n in range(datos.n_terminos)])
 
-        # Integral definida exacta
+        # Integral definida exacta con límites de integración
         resultado_exacto = integrate(f, (x, datos.a, datos.b))
-        resultado_exacto_val = float(N(resultado_exacto))
+        resultado_exacto_val = N(resultado_exacto, 10)  # Valor numérico sin decimales si es posible
+        resultado_exacto_tex = f"$$ \\int_{{{datos.a}}}^{{{datos.b}}} {f} dx = {resultado_exacto} $$"
 
         # Métodos numéricos
         puntos = np.linspace(datos.a, datos.b, 1000)
@@ -64,9 +64,9 @@ def resolver_integral(datos: InputDatos):
         return {
             "primitiva_real": F_exacta_tex,
             "serie_taylor_general": f"$$ {sumatoria_general} $$",  # Añadido la sumatoria general
-            "serie_taylor_finita": f"$$ {f_series} $$",  # Añadido la suma finita
-            "integral_definida_exacta": f"$$ {resultado_exacto} $$",
-            "valor_numerico_exacto": resultado_exacto_val,
+            "serie_taylor_finita": f"$$ {f_series_tex} $$",  # Añadido la suma finita
+            "integral_definida": resultado_exacto_tex,  # Se muestra la integral con límites y función
+            "valor_numerico_exacto": f"{resultado_exacto_val}",  # Se muestra el valor exacto
             "metodos_numericos": {
                 "simpson": integral_simpson,
                 "romberg": integral_romberg,
