@@ -40,7 +40,8 @@ def resolver_integral(datos: InputDatos):
             F_exacta_tex = "No tiene primitiva elemental"
 
         # Serie de Taylor y primitiva aproximada
-        f_series = series(f, x, 0, datos.n_terminos + 1).removeO()
+        sumatoria_general = Sum(diff(f, x, n).subs(x, datos.a) / factorial(n) * (x - datos.a)**n, (n, 0, oo)).doit()  # Sumatoria infinita
+        f_series = series(f, x, datos.a, datos.n_terminos + 1).removeO()  # Serie de Taylor hasta n términos
         F_aproximada = integrate(f_series, x)
         F_aproximada_tex = f"$$ {F_aproximada} $$"
 
@@ -59,7 +60,8 @@ def resolver_integral(datos: InputDatos):
 
         return {
             "primitiva_real": F_exacta_tex,
-            "serie_taylor": F_aproximada_tex,
+            "serie_taylor_general": f"$$ {sumatoria_general} $$",  # Añadido la sumatoria general
+            "serie_taylor_finita": f"$$ {f_series} $$",  # Añadido la suma finita
             "integral_definida_exacta": f"$$ {resultado_exacto} $$",
             "valor_numerico_exacto": resultado_exacto_val,
             "metodos_numericos": {
