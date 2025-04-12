@@ -73,30 +73,35 @@ def resolver_integral(datos: InputDatos):
             resultado_exacto_val = float(N(resultado_exacto))
             resultado_exacto_tex = f"$$ {latex(resultado_exacto)} $$"
 
-        # Serie de Taylor general (expresión simbólica infinita)
+        #### CENTRO DE TAYLOR: POR DEFECTO a = 0 ####
+        a_taylor = 0
+
+        # Serie general simbólica (expresión formal)
         serie_general = Sum(
-            diff(f, x, n).subs(x, datos.a) / factorial(n) * (x - datos.a)**n,
+            diff(f, x, n).subs(x, a_taylor) / factorial(n) * (x - a_taylor)**n,
             (n, 0, oo)
         )
         sumatoria_general_tex = f"$$ {latex(serie_general)} $$"
 
-        # ✨ Explicación textual automática después de la sumatoria
+        # Texto explicativo
         explicacion_taylor = (
             f"**Para la función** \\( {latex(f)} \\), "
-            f"**el desarrollo en serie de Taylor alrededor de** \\( x = {datos.a} \\) **es:**"
+            f"**el desarrollo en serie de Taylor alrededor de** \\( x = {a_taylor} \\) **es:**"
         )
 
-        # Serie truncada hasta n términos (forma simbólica exacta)
-        terminos_taylor = []
+        # Serie truncada como suma simbólica explítica (no desarrollada como polinomio)
+        terminos = []
         for i in range(datos.n_terminos):
-            deriv_i = diff(f, x, i)
-            coef_i = simplify(deriv_i.subs(x, datos.a) / factorial(i))
-            term_i = coef_i * (x - datos.a)**i
-            terminos_taylor.append(term_i)
+            deriv_i = diff(f, x, i).subs(x, a_taylor)
+            term = simplify(deriv_i / factorial(i)) * (x - a_taylor)**i
+            terminos.append(term)
 
-        f_series = sum(terminos_taylor)
-        f_series_tex = f"$$ {latex(f_series)} $$"
-        F_aproximada = integrate(f_series, x)
+        f_series_sumada = " + ".join([latex(term) for term in terminos])
+        f_series_tex = f"$$ {latex(f)} = {f_series_sumada} $$"
+
+        # Integral de la aproximación
+        f_series_expr = sum(terminos)
+        F_aproximada = integrate(f_series_expr, x)
         F_aproximada_tex = f"$$ {latex(F_aproximada)} $$"
 
         integral_definida_tex = f"$$ \\int_{{{datos.a}}}^{{{datos.b}}} {latex(f)} \\, dx $$"
