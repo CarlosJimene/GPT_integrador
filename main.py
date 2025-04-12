@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from pydantic import BaseModel
 import numpy as np
-from sympy import symbols, sympify, integrate, series, lambdify, N, solveset, Interval, S, oo, log, sin, cos, exp
+from sympy import symbols, sympify, integrate, series, lambdify, N, solveset, Interval, S, oo, log, sin, cos, exp, diff, factorial
 from scipy.integrate import simpson, quad
 
 app = FastAPI()
@@ -40,7 +40,10 @@ def resolver_integral(datos: InputDatos):
             F_exacta_tex = "No tiene primitiva elemental"
 
         # Serie de Taylor y primitiva aproximada
-        sumatoria_general = Sum(diff(f, x, n).subs(x, datos.a) / factorial(n) * (x - datos.a)**n, (n, 0, oo)).doit()  # Sumatoria infinita
+        # Formato de la serie de Taylor infinita
+        sumatoria_general = sum([diff(f, x, n).subs(x, datos.a) / factorial(n) * (x - datos.a)**n for n in range(0, 6)])  # Muestra la sumatoria general hasta n=6 como ejemplo
+
+        # Serie de Taylor hasta n términos
         f_series = series(f, x, datos.a, datos.n_terminos + 1).removeO()  # Serie de Taylor hasta n términos
         F_aproximada = integrate(f_series, x)
         F_aproximada_tex = f"$$ {F_aproximada} $$"
