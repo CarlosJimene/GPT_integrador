@@ -4,7 +4,7 @@ from typing import Union
 import numpy as np
 from sympy import (
     symbols, sympify, integrate, solveset, Interval, oo,
-    diff, factorial, Sum, latex, simplify, N, sstr, Function, erf, sqrt, pi
+    diff, factorial, Sum, latex, simplify, N, sstr, Function, erf, sqrt, pi, erfi
 )
 from scipy.integrate import simpson, quad
 import sympy as sp
@@ -12,7 +12,7 @@ import random
 
 app = FastAPI()
 
-x, n = symbols('x n', real=True)  # Aseguramos que x y n sean reales
+x, n = symbols('x n', real=True)
 
 class InputDatos(BaseModel):
     funcion: str
@@ -25,7 +25,7 @@ def exportar_para_geogebra(expr):
     """
     Convierte la expresión simbólica a un string compatible con GeoGebra:
     - Reemplaza '**' por '^'
-    - Reemplaza '*' por ''
+    - Elimina '*' (para que, p. ej., 'x*y' pase a ser 'xy')
     """
     expr_str = sstr(expr)
     expr_str = expr_str.replace('**', '^').replace('*', '')
@@ -33,225 +33,231 @@ def exportar_para_geogebra(expr):
 
 def obtener_funciones_especiales(expr):
     """
-    Dada una expresión de sympy, busca en su representación en cadena
-    ciertas subcadenas (Si, erf, Li, Ci, gamma, beta, Ei, besselj, etc.)
-    para generar una lista de definiciones matemáticas (en LaTeX)
-    con breve descripción. Devuelve una lista de diccionarios.
+    Dada una expresión sympy, busca subcadenas en su representación textual
+    y devuelve definiciones (LaTeX + descripción) de las funciones especiales halladas.
     """
     definiciones = []
-
     expr_str = str(expr)
 
-    # Funciones ya existentes
+    # Funciones básicas
     if "Si" in expr_str:
         definiciones.append({
             "funcion": "Si(x)",
             "latex": r"\mathrm{Si}(x) = \int_0^x \frac{\sin(t)}{t}\,dt",
-            "descripcion": "La función seno integral, primitiva de \\( \\frac{\\sin(x)}{x} \\)."
+            "descripcion": "Función seno integral, primitiva de \\(\\sin(x)/x\\)."
         })
-    if "erf" in expr_str:
+    if "erf" in expr_str and "erfi" not in expr_str:
+        # Ojo: "erf" aparece también en "erfi", así que discriminamos "erfi" aparte
         definiciones.append({
             "funcion": "erf(x)",
             "latex": r"\mathrm{erf}(x) = \frac{2}{\sqrt{\pi}} \int_0^x e^{-t^2}\,dt",
-            "descripcion": "La función error, aparece al integrar \\( e^{-x^2} \\)."
+            "descripcion": "Función error, aparece al integrar \\( e^{-x^2} \\)."
+        })
+    if "erfi" in expr_str:
+        definiciones.append({
+            "funcion": "erfi(x)",
+            "latex": r"\mathrm{erfi}(x) = -\,i\,\mathrm{erf}(i\,x)",
+            "descripcion": "Función error imaginaria, primitiva de \\( e^{x^2} \\)."
         })
     if "Li" in expr_str:
         definiciones.append({
             "funcion": "Li(x)",
             "latex": r"\mathrm{Li}(x) = \int_0^x \frac{dt}{\log(t)}",
-            "descripcion": "La función logaritmo integral, primitiva de \\( \\frac{1}{\\log(x)} \\)."
+            "descripcion": "Función logaritmo integral, primitiva de \\( 1/\log(x) \\)."
         })
     if "Ci" in expr_str:
         definiciones.append({
             "funcion": "Ci(x)",
             "latex": r"\mathrm{Ci}(x) = -\int_x^\infty \frac{\cos(t)}{t}\,dt",
-            "descripcion": "La función coseno integral, aparece en análisis armónico y transformadas."
+            "descripcion": "Función coseno integral, aparece en análisis armónico."
         })
     if "gamma" in expr_str:
         definiciones.append({
             "funcion": "Gamma(x)",
             "latex": r"\Gamma(x) = \int_0^\infty t^{x-1} e^{-t}\,dt",
-            "descripcion": "Extiende el factorial a los números reales y complejos."
+            "descripcion": "Extiende el factorial a números reales y complejos."
         })
     if "beta" in expr_str:
         definiciones.append({
             "funcion": "Beta(x, y)",
             "latex": r"B(x, y) = \int_0^1 t^{x-1}(1-t)^{y-1}\,dt",
-            "descripcion": "Relacionada con Gamma y aparece en teoría de probabilidad."
+            "descripcion": "Relación con la función Gamma. Aparece en probabilidad."
         })
 
-    # Funciones especiales adicionales
+    # Funciones extra
     if "Ei" in expr_str:
         definiciones.append({
             "funcion": "Ei(x)",
             "latex": r"\mathrm{Ei}(x) = \int_{-\infty}^x \frac{e^t}{t}\,dt",
-            "descripcion": "La función exponencial integral, primitiva de \\( \\frac{e^x}{x} \\)."
+            "descripcion": "Función exponencial integral, primitiva de \\( e^x/x \\)."
         })
-    if "besselj" in expr_str or "BesselJ" in expr_str or "J(" in expr_str:
+    if any(s in expr_str for s in ["besselj", "BesselJ", "J("]):
         definiciones.append({
             "funcion": "J_n(x)",
             "latex": r"J_n(x) = \sum_{m=0}^\infty \frac{(-1)^m}{m!\,\Gamma(m+n+1)}\left(\frac{x}{2}\right)^{2m+n}",
-            "descripcion": "La función de Bessel de la primera especie."
+            "descripcion": "Función de Bessel de primera especie."
         })
-    if "bessely" in expr_str or "BesselY" in expr_str or "Y(" in expr_str:
+    if any(s in expr_str for s in ["bessely", "BesselY", "Y("]):
         definiciones.append({
             "funcion": "Y_n(x)",
             "latex": r"Y_n(x) = \frac{J_n(x)\cos(n\pi)-J_{-n}(x)}{\sin(n\pi)}",
-            "descripcion": "La función de Bessel de la segunda especie."
+            "descripcion": "Función de Bessel de segunda especie."
         })
     if "dawson" in expr_str:
         definiciones.append({
             "funcion": "F(x)",
             "latex": r"F(x) = e^{-x^2}\int_0^x e^{t^2}\,dt",
-            "descripcion": "La función de Dawson, relacionada con 'erf'."
+            "descripcion": "Función de Dawson, relacionada con 'erf'."
         })
-    if "fresnels" in expr_str or "S(" in expr_str:
+    if any(s in expr_str for s in ["fresnels", "S("]):
         definiciones.append({
             "funcion": "S(x)",
             "latex": r"S(x) = \int_0^x \sin(t^2)\,dt",
-            "descripcion": "La función Fresnel S, aparece en óptica y difracción."
+            "descripcion": "Función Fresnel S, aparece en óptica y difracción."
         })
-    if "fresnelc" in expr_str or "C(" in expr_str:
+    if any(s in expr_str for s in ["fresnelc", "C("]):
         definiciones.append({
             "funcion": "C(x)",
             "latex": r"C(x) = \int_0^x \cos(t^2)\,dt",
-            "descripcion": "La función Fresnel C, aparece en óptica y difracción."
+            "descripcion": "Función Fresnel C, aparece en óptica y difracción."
         })
-    if "Ai(" in expr_str or "airy" in expr_str:
+    if any(s in expr_str for s in ["Ai(", "airy"]):
         definiciones.append({
             "funcion": "Ai(x)",
-            "latex": r"\mathrm{Ai}(x) = \frac{1}{\pi}\int_0^\infty \cos\left(\tfrac{t^3}{3}+xt\right)\,dt",
-            "descripcion": "La función Airy Ai, solución de la ecuación diferencial de Airy."
+            "latex": r"\mathrm{Ai}(x) = \frac{1}{\pi}\int_0^\infty \cos\bigl(\tfrac{t^3}{3}+xt\bigr)\,dt",
+            "descripcion": "Función Airy Ai, solución de la ecuación de Airy."
         })
     if "Bi(" in expr_str:
         definiciones.append({
             "funcion": "Bi(x)",
             "latex": r"\mathrm{Bi}(x) = \dots",
-            "descripcion": "La función Airy Bi complementa a Ai(x) en la ecuación de Airy."
+            "descripcion": "Función Airy Bi, solución secundaria de la ecuación de Airy."
         })
     if "zeta" in expr_str:
         definiciones.append({
             "funcion": "ζ(s)",
             "latex": r"\zeta(s) = \sum_{n=1}^\infty \frac{1}{n^s}",
-            "descripcion": "La función zeta de Riemann, fundamental en teoría de números."
+            "descripcion": "Función zeta de Riemann, crucial en teoría de números."
         })
 
     return definiciones
 
-#############################################
-# --- FUNCIONES PARA INTEGRACIÓN SOBRE SUBINTERVALOS ---
-#############################################
+####################################################
+#  --- MANEJO DE SUBINTERVALOS PARA SINGULARIDADES ---
+####################################################
 
 def crear_subintervalos(a_eval, b_eval, singularidades, epsilon=1e-8):
     """
-    A partir del intervalo [a_eval, b_eval] y una lista de singularidades,
-    crea una lista ordenada de subintervalos (tuplas) evitando evaluar
-    en una vecindad epsilon alrededor de cada singularidad.
-    También maneja si a_eval o b_eval son singulares.
+    Dado [a_eval, b_eval] y un conjunto de singularidades,
+    genera subintervalos que evitan una vecindad 'epsilon' alrededor
+    de cada singularidad (incluyendo extremos).
     """
-    # Ordenar singularidades y filtrar las que estén dentro de [a_eval, b_eval]
-    singular_interior = [s for s in sorted(singularidades) if a_eval <= s <= b_eval]
-
-    # Ajuste de extremos
+    sing_sorted = sorted(s for s in singularidades)
+    # Ajuste de extremos (por si alguna singularidad está pegada)
     a_adj = a_eval
     b_adj = b_eval
-    if singular_interior and abs(singular_interior[0] - a_eval) < epsilon:
+
+    if sing_sorted and abs(sing_sorted[0] - a_eval) < epsilon:
         a_adj = a_eval + epsilon
-    if singular_interior and abs(b_eval - singular_interior[-1]) < epsilon:
+    if sing_sorted and abs(b_eval - sing_sorted[-1]) < epsilon:
         b_adj = b_eval - epsilon
 
-    # Puntos de corte
+    # Creamos la lista de "puntos" (cortes)
     puntos = [a_adj]
-    for s in singular_interior:
-        s_min = s - epsilon
-        s_max = s + epsilon
-        if s_min > puntos[-1]:
-            puntos.append(s_min)
-        if s_max < b_adj:
-            puntos.append(s_max)
+    for s in sing_sorted:
+        s_left = s - epsilon
+        s_right = s + epsilon
+        if s_left > puntos[-1]:
+            puntos.append(s_left)
+        if s_right < b_adj:
+            puntos.append(s_right)
     puntos.append(b_adj)
 
+    # Armamos subintervalos
     subintervalos = []
-    for i in range(len(puntos) - 1):
-        left = puntos[i]
-        right = puntos[i+1]
-        # Se añade solo si left < right
-        if left < right:
-            subintervalos.append((left, right))
-
+    for i in range(len(puntos)-1):
+        izq, der = puntos[i], puntos[i+1]
+        if izq < der:
+            subintervalos.append((izq, der))
     return subintervalos
 
 def simpson_subintervalos(f_lambda, subintervalos, n_points=1001):
     """
-    Integra usando Simpson sobre cada subintervalo y retorna la suma de todas.
+    Aplica la regla de Simpson en cada subintervalo
+    y suma los resultados.
     """
-    integral_total = 0.0
-    for (sub_a, sub_b) in subintervalos:
-        puntos = np.linspace(sub_a, sub_b, n_points)
-        y_vals = f_lambda(puntos)
-        integral_sub = simpson(y_vals, x=puntos)
-        integral_total += integral_sub
-    return integral_total
+    total = 0.0
+    for (a_i, b_i) in subintervalos:
+        puntos = np.linspace(a_i, b_i, n_points)
+        valores = f_lambda(puntos)
+        integral_i = simpson(valores, x=puntos)
+        total += integral_i
+    return total
 
 def monte_carlo_subintervalos(f_lambda, subintervalos, n_samples=10000):
     """
-    Integra usando método Monte Carlo en cada subintervalo y suma los resultados.
+    Aplica Monte Carlo en cada subintervalo y suma los resultados.
     """
     total = 0.0
-    for (sub_a, sub_b) in subintervalos:
+    for (a_i, b_i) in subintervalos:
         acum = 0.0
         for _ in range(n_samples):
-            x_rand = random.uniform(sub_a, sub_b)
-            acum += f_lambda([x_rand])[0]
-        # (sub_b - sub_a) por el valor promedio
-        total += (sub_b - sub_a) * (acum / n_samples)
+            x_rand = random.uniform(a_i, b_i)
+            val = f_lambda(x_rand)
+            # Si f_lambda(x_rand) es un array, tomar [0]
+            if isinstance(val, (list, np.ndarray)):
+                val = val[0]
+            acum += val
+        sub_len = (b_i - a_i)
+        total += sub_len * (acum / n_samples)
     return total
 
 #############################################
-# --- END FUNCIONES PARA INTEGRACIÓN ---
+# --- FIN MANEJO DE SUBINTERVALOS ---
 #############################################
 
 @app.post("/resolver-integral")
 def resolver_integral(datos: InputDatos):
     """
-    Procesa una función (en formato string), con límites a y b, y devuelve:
-      - Primitiva (cuando exista)
-      - Detección de funciones especiales en integrando y primitiva
-      - Integral definida exacta (Sympy)
-      - Varios métodos numéricos (Simpson, Romberg, Gauss, Monte Carlo)
-      - Serie de Taylor
-      - Expresiones para GeoGebra
-      - Advertencias de singularidades
+    Expone un endpoint que dada la función (string), [a, b],
+    calcula la integral simbólica (cuando existe),
+    detecta funciones especiales, y evalúa métodos numéricos.
+    Genera también expresiones aptas para GeoGebra.
     """
     try:
-        # 1. Parseo de los datos de entrada
+        # 1) Parseo de entradas
         a_sym = sympify(datos.a)
         b_sym = sympify(datos.b)
         a_eval = float(N(a_sym))
         b_eval = float(N(b_sym))
 
         if a_eval >= b_eval:
-            raise HTTPException(
-                status_code=400,
-                detail="El límite inferior debe ser menor que el superior."
-            )
+            raise HTTPException(status_code=400, detail="El límite inferior debe ser menor que el superior.")
 
-        # 2. Construcción de la función simbólica y lambda
+        # 2) Función simbólica y lambda
         f = sympify(datos.funcion)
-        if str(f) == 'sin(x)/x':
-            def f_lambda(x_val):
-                return np.where(x_val == 0, 1.0, np.sin(x_val)/x_val)
+        # Caso especial sin(x)/x para evitar /0
+        if str(f) == "sin(x)/x":
+            def f_lambda(z):
+                z_array = np.array(z, ndmin=1)
+                # Donde z=0 => 1.0, si no sin(z)/z
+                vals = np.where(np.isclose(z_array, 0.0, atol=1e-14),
+                                1.0,
+                                np.sin(z_array)/z_array)
+                # Retornar escalar o array
+                return vals if len(vals) > 1 else vals[0]
         else:
+            # Lambdify para arrays
             f_lambda = sp.lambdify(x, f, modules=['numpy'])
 
-        # 3. Detección de singularidades (interior y extremos)
+        # 3) Detección de singularidades
         advertencias = []
         singular_points = set()
 
-        # 3a. Sing interior mediante solveset
+        # 3a) Sing interior con solveset
         try:
-            posibles_sing = solveset(1/f, x, domain=Interval(a_eval, b_eval))
-            for p in posibles_sing:
+            sing_interior = solveset(1/f, x, domain=Interval(a_eval, b_eval))
+            for p in sing_interior:
                 val = float(p.evalf())
                 if a_eval <= val <= b_eval:
                     singular_points.add(val)
@@ -259,63 +265,61 @@ def resolver_integral(datos: InputDatos):
         except:
             pass
 
-        # 3b. Sing en extremos
-        # Ver si f(a_eval) es finito
+        # 3b) Sing en extremos
+        #    Comprobamos si f_lambda(a_eval) o f_lambda(b_eval) dan infinito/NaN
+        def es_finito(valor):
+            try:
+                return np.isfinite(valor)
+            except:
+                return False
+
         try:
-            if not np.isfinite(f_lambda(a_eval)):
+            val_a = f_lambda(a_eval)
+            if isinstance(val_a, (list, np.ndarray)):
+                val_a = val_a[0]
+            if not es_finito(val_a):
                 singular_points.add(a_eval)
                 advertencias.append(f"⚠️ Singularidad en x={a_eval} (límite inferior)")
         except:
             singular_points.add(a_eval)
             advertencias.append(f"⚠️ Singularidad en x={a_eval} (límite inferior)")
 
-        # Ver si f(b_eval) es finito
         try:
-            if not np.isfinite(f_lambda(b_eval)):
+            val_b = f_lambda(b_eval)
+            if isinstance(val_b, (list, np.ndarray)):
+                val_b = val_b[0]
+            if not es_finito(val_b):
                 singular_points.add(b_eval)
                 advertencias.append(f"⚠️ Singularidad en x={b_eval} (límite superior)")
         except:
             singular_points.add(b_eval)
             advertencias.append(f"⚠️ Singularidad en x={b_eval} (límite superior)")
 
-        # 4. Hallar la primitiva exacta (si existe)
+        # 4) Primitiva (cuando Sympy puede)
         F_exacta_tex = ""
         valor_simbolico = "Valor simbólico no disponible"
+        try:
+            F_expr = integrate(f, x)
+            F_exacta_tex = latex(F_expr)
+            valor_simbolico = latex(F_expr.subs(x, b_sym) - F_expr.subs(x, a_sym))
+        except:
+            F_exacta_tex = "No tiene primitiva elemental"
 
-        # Casos especiales (sin x / x, e^(-x^2))
-        if str(f) == 'sin(x)/x':
-            F_exacta_tex = r"\mathrm{Si}(x)"
-            valor_simbolico = rf"\mathrm{{Si}}({latex(b_sym)}) - \mathrm{{Si}}({latex(a_sym)})"
-        elif str(f) == 'exp(-x**2)':
-            valor_simbolico = (rf"2 \sqrt{{\pi}} \cdot \mathrm{{erf}}({latex(b_sym)})"
-                               if a_sym == -b_sym else
-                               rf"\sqrt{{\pi}} \cdot (\mathrm{{erf}}({latex(b_sym)}) - \mathrm{{erf}}({latex(a_sym)}))")
-            F_exacta_tex = r"\frac{\sqrt{\pi}}{2}\mathrm{erf}(x)"
-        else:
-            try:
-                F_expr = integrate(f, x)
-                F_exacta_tex = latex(F_expr)
-                valor_simbolico = latex(F_expr.subs(x, b_sym) - F_expr.subs(x, a_sym))
-            except:
-                F_exacta_tex = "No tiene primitiva elemental"
-
-        # 5. Detección de funciones especiales en la función y en la primitiva
-        #    Esto asegura que si la primitiva es, por ejemplo, Li(x),
-        #    aparezca la definición en el resultado.
+        # 5) Detectar funciones especiales en integrando y en primitiva
         funcs_en_f = obtener_funciones_especiales(f)
         if 'F_expr' in locals():
-            funcs_en_primitiva = obtener_funciones_especiales(F_expr)
+            funcs_en_prim = obtener_funciones_especiales(F_expr)
         else:
-            funcs_en_primitiva = []
-        # Combinamos en un solo dict para evitar duplicados.
-        # Usaremos el "nombre" de la función como clave.
+            funcs_en_prim = []
+
+        # Para no duplicar entradas
         all_funcs = {}
-        for dic in (funcs_en_f + funcs_en_primitiva):
-            all_funcs[dic["funcion"]] = dic
-        # listamos de nuevo
+        for d in (funcs_en_f + funcs_en_prim):
+            all_funcs[d["funcion"]] = d
+
         funciones_especiales_detectadas = list(all_funcs.values())
 
-        # 6. Integral definida exacta con sympy
+        # 6) Integral definida exacta
         try:
             resultado_exacto = integrate(f, (x, a_eval, b_eval))
             resultado_exacto_val = float(N(resultado_exacto))
@@ -324,56 +328,57 @@ def resolver_integral(datos: InputDatos):
             resultado_exacto_val = None
             resultado_exacto_tex = "No calculable simbólicamente"
 
-        # 7. Serie de Taylor
+        # 7) Serie de Taylor alrededor de 0 (opcional si 0 está en [a,b] o no, pero se hace igual)
         a_taylor = 0
         serie_general = Sum(diff(f, x, n).subs(x, a_taylor) / factorial(n) * (x - a_taylor)**n, (n, 0, oo))
         sumatoria_general_tex = f"$$ {latex(serie_general)} $$"
-        explicacion_taylor = (
-            f"**Para la función** \\( {latex(f)} \\), "
-            f"**el desarrollo en serie de Taylor alrededor de** \\( x = 0 \\) **es:**"
-        )
+        explicacion_taylor = f"**La expansión en serie de Taylor de** \\( {latex(f)} \\) **alrededor de x=0 es:**"
 
         terminos = []
         for i in range(datos.n_terminos):
             deriv_i = diff(f, x, i).subs(x, a_taylor)
-            term = simplify(deriv_i / factorial(i)) * (x - a_taylor)**i
-            terminos.append(term)
-
-        f_series_sumada = " + ".join([latex(term) for term in terminos]) + r" + \cdots"
-        f_series_tex = f"$$ {latex(f)} = {f_series_sumada} $$"
+            termino_i = simplify(deriv_i / factorial(i))*(x - a_taylor)**i
+            terminos.append(termino_i)
 
         f_series_expr = sum(terminos)
+        # Texto "f = ...."
+        f_series_sumada = " + ".join(latex(t) for t in terminos) + " + \\cdots"
+        f_series_tex = f"$$ {latex(f)} = {f_series_sumada} $$"
+
+        # Integración simbólica de la serie truncada (para ver su primitiva)
         F_aproximada = integrate(f_series_expr, x)
         F_aproximada_tex = f"$$ {latex(F_aproximada)} $$"
 
         integral_definida_tex = f"$$ \\int_{{{latex(a_sym)}}}^{{{latex(b_sym)}}} {latex(f)} \\, dx $$"
 
-        # 8. Integramos usando métodos numéricos con subintervalos
+        # 8) Métodos numéricos
+        #    Creamos subintervalos evitando singularidades
         epsilon = 1e-8
         subintervalos = crear_subintervalos(a_eval, b_eval, singular_points, epsilon)
 
-        # 8.1 Simpson
+        # Simpson
         integral_simpson = simpson_subintervalos(f_lambda, subintervalos)
 
-        # 8.2 Romberg y Gauss (quad)
-        # pasamos 'points' con los puntos singulares
-        puntos_criticos = sorted(singular_points)
+        # Romberg / Cuadratura Gaussiana (quad) -> pasamos points con singularidades
+        points_sing = sorted(singular_points)
         try:
-            integral_romberg, _ = quad(f_lambda, a_eval, b_eval, points=puntos_criticos)
+            val_romberg, _ = quad(f_lambda, a_eval, b_eval, points=points_sing)
+            integral_romberg = val_romberg
         except:
             integral_romberg = None
-            advertencias.append("No se pudo calcular con Romberg (singularidades).")
+            advertencias.append("No se pudo calcular con Romberg (posibles singularidades).")
 
         try:
-            integral_gauss, _ = quad(f_lambda, a_eval, b_eval, points=puntos_criticos)
+            val_gauss, _ = quad(f_lambda, a_eval, b_eval, points=points_sing)
+            integral_gauss = val_gauss
         except:
             integral_gauss = None
-            advertencias.append("No se pudo calcular con Cuadratura Gaussiana (singularidades).")
+            advertencias.append("No se pudo calcular con Cuadratura Gaussiana (posibles singularidades).")
 
-        # 8.3 Monte Carlo
+        # Monte Carlo
         integral_montecarlo = monte_carlo_subintervalos(f_lambda, subintervalos)
 
-        # 9. Texto de GeoGebra
+        # 9) Texto GeoGebra (para copiar y pegar)
         #    - f(x) = ...
         #    - T(x) = ...
         #    - Integral(f, a, b)
@@ -383,19 +388,20 @@ def resolver_integral(datos: InputDatos):
             "area_comando": f"Integral(f, {a_eval}, {b_eval})"
         }
 
-        # 10. Construcción de la respuesta JSON
+        # 10) Construcción de la respuesta
         return {
             "funcion_introducida": str(f),
+            "integral_definida": integral_definida_tex,
             "primitiva_real": f"$$ {F_exacta_tex} $$",
             "valor_simbolico_integral": f"$$ {valor_simbolico} $$",
             "valor_numerico_exacto": resultado_exacto_val,
             "valor_numerico_exacto_latex": f"$$ {resultado_exacto_tex} $$",
+
             "funciones_especiales_detectadas": funciones_especiales_detectadas,
 
             "serie_taylor_general": sumatoria_general_tex,
             "explicacion_taylor_general": explicacion_taylor,
             "serie_taylor_finita": f_series_tex,
-            "integral_definida": integral_definida_tex,
             "integral_serie_taylor": F_aproximada_tex,
 
             "metodos_numericos": {
