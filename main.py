@@ -3,12 +3,9 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from typing import Union
 import numpy as np
-import json
-import urllib.parse
 from sympy import (
-    symbols, sympify, integrate, series, lambdify, N,
-    solveset, Interval, oo, log, sin, cos, exp, diff, factorial,
-    limit, Sum, S, latex, simplify
+    symbols, sympify, integrate, solveset, Interval, oo,
+    diff, factorial, Sum, latex, simplify, N, sstr
 )
 from scipy.integrate import simpson, quad
 import matplotlib.pyplot as plt
@@ -35,7 +32,6 @@ class InputDatos(BaseModel):
 
 # Función para graficar f(x) y su Taylor
 def generar_grafica_serie_taylor(expr, n_terminos=10, ruta_salida="static/taylor.png"):
-    x = sp.Symbol('x')
     taylor_expr = sum([
         sp.simplify(sp.diff(expr, x, i).subs(x, 0) / sp.factorial(i)) * x**i
         for i in range(n_terminos)
@@ -82,7 +78,7 @@ def resolver_integral(datos: InputDatos):
             def f_lambda(x_val):
                 return np.where(x_val == 0, 1.0, np.sin(x_val)/x_val)
         else:
-            f_lambda = lambdify(x, f, modules=['numpy'])
+            f_lambda = sp.lambdify(x, f, modules=['numpy'])
 
         posibles_sing = solveset(1/f, x, domain=Interval(a_eval, b_eval))
         advertencias = []
@@ -165,17 +161,11 @@ def resolver_integral(datos: InputDatos):
         # Crear la gráfica de la función y su Taylor
         generar_grafica_serie_taylor(f, datos.n_terminos)
 
-                # Crear la gráfica de la función y su Taylor
-        generar_grafica_serie_taylor(f, datos.n_terminos)
-
-        # Crear enlace a GeoGebra
-        geogebra_obj = {
-            "functions": [
-                {"latex": f"f(x)={latex(f)}"},
-                {"latex": f"T(x)={latex(f_series_expr)}"}
-            ]
+        # Generar texto para copiar en GeoGebra
+        geogebra_expresiones = {
+            "funcion": f"f(x) = {sstr(f)}",
+            "taylor": f"T(x) = {sstr(f_series_expr)}"
         }
-        geogebra_url = "https://www.geogebra.org/graphing?graph=" + urllib.parse.quote(json.dumps(geogebra_obj))
 
         return {
             "primitiva_real": F_exacta_tex,
@@ -194,7 +184,7 @@ def resolver_integral(datos: InputDatos):
             },
             "advertencias": advertencias,
             "grafica_url": "https://gpt-integrador.onrender.com/static/taylor.png",
-            "geogebra_url": geogebra_url
+            "geogebra_expresiones": geogebra_expresiones
         }
 
     except Exception as e:
