@@ -23,8 +23,7 @@ class InputDatos(BaseModel):
 
 def exportar_para_geogebra(expr):
     expr_str = sstr(expr)
-    expr_str = expr_str.replace('**', '^')
-    expr_str = expr_str.replace('*', '')
+    expr_str = expr_str.replace('**', '^').replace('*', '')
     return expr_str
 
 def obtener_funciones_especiales(expr):
@@ -34,42 +33,37 @@ def obtener_funciones_especiales(expr):
         definiciones.append({
             "funcion": "Si(x)",
             "latex": r"\mathrm{Si}(x) = \int_0^x \frac{\sin(t)}{t} \, dt",
-            "descripcion": "La función seno integral aparece como primitiva de \\( \\frac{\\sin(x)}{x} \\). No tiene forma elemental, pero está perfectamente definida mediante una integral impropia convergente."
+            "descripcion": "La función seno integral aparece como primitiva de \\( \\frac{\\sin(x)}{x} \\)."
         })
-
     if "erf" in str(expr):
         definiciones.append({
             "funcion": "erf(x)",
             "latex": r"\mathrm{erf}(x) = \frac{2}{\sqrt{\pi}} \int_0^x e^{-t^2} \, dt",
-            "descripcion": "La función error aparece como primitiva de \\( e^{-x^2} \\). Es clave en estadística y teoría de probabilidad."
+            "descripcion": "La función error aparece como primitiva de \\( e^{-x^2} \\)."
         })
-
     if "Li" in str(expr):
         definiciones.append({
             "funcion": "Li(x)",
             "latex": r"\mathrm{Li}(x) = \int_0^x \frac{dt}{\log(t)}",
-            "descripcion": "La función logaritmo integral aparece al integrar \\( \\frac{1}{\\log(x)} \\). Es importante en teoría de números."
+            "descripcion": "La función logaritmo integral aparece al integrar \\( \\frac{1}{\\log(x)} \\)."
         })
-
     if "Ci" in str(expr):
         definiciones.append({
             "funcion": "Ci(x)",
             "latex": r"\mathrm{Ci}(x) = -\int_x^\infty \frac{\cos(t)}{t} \, dt",
             "descripcion": "La función coseno integral aparece en análisis armónico y transformadas."
         })
-
     if "gamma" in str(expr):
         definiciones.append({
             "funcion": "Gamma(x)",
             "latex": r"\Gamma(x) = \int_0^\infty t^{x-1} e^{-t} \, dt",
-            "descripcion": "La función Gamma extiende el factorial a los números reales y complejos."
+            "descripcion": "Extiende el factorial a los números reales y complejos."
         })
-
     if "beta" in str(expr):
         definiciones.append({
             "funcion": "Beta(x, y)",
             "latex": r"B(x, y) = \int_0^1 t^{x-1} (1 - t)^{y-1} \, dt",
-            "descripcion": "La función Beta se relaciona con la función Gamma y aparece en teoría de probabilidad y combinatoria."
+            "descripcion": "Relacionada con la función Gamma. Aparece en teoría de probabilidad."
         })
 
     return definiciones
@@ -77,7 +71,7 @@ def obtener_funciones_especiales(expr):
 @app.post("/resolver-integral")
 def resolver_integral(datos: InputDatos):
     try:
-        # Evaluar límites
+        # ✅ Convertir límites simbólicos a float
         a_sym = sympify(datos.a)
         b_sym = sympify(datos.b)
         a_eval = float(N(a_sym))
@@ -109,7 +103,6 @@ def resolver_integral(datos: InputDatos):
         F_exacta_tex = ""
         valor_simbolico = "Valor simbólico no disponible"
 
-        # Detección manual
         if str(f) == 'sin(x)/x':
             F_exacta = Function('Si')(x)
             F_exacta_tex = r"\mathrm{Si}(x)"
