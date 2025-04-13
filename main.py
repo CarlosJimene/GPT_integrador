@@ -4,7 +4,7 @@ from typing import Union
 import numpy as np
 from sympy import (
     symbols, sympify, integrate, solveset, Interval, oo,
-    diff, factorial, Sum, latex, simplify, N, sstr
+    diff, factorial, Sum, latex, simplify, N, sstr, Function
 )
 from scipy.integrate import simpson, quad
 import sympy as sp
@@ -12,10 +12,8 @@ import random
 
 app = FastAPI()
 
-# Variables simbólicas
 x, n = symbols('x n')
 
-# Modelo de entrada
 class InputDatos(BaseModel):
     funcion: str
     a: Union[str, float]
@@ -23,24 +21,73 @@ class InputDatos(BaseModel):
     n_terminos: int = Field(default=10, ge=1, le=20)
     tolerancia: float = Field(default=1e-6, ge=1e-10)
 
-# Exportador para sintaxis GeoGebra
 def exportar_para_geogebra(expr):
     expr_str = sstr(expr)
     expr_str = expr_str.replace('**', '^')
     expr_str = expr_str.replace('*', '')
-    expr_str = expr_str.replace(')/', ')/')
     return expr_str
+
+def obtener_funciones_especiales(expr):
+    definiciones = []
+
+    if "Si" in str(expr):
+        definiciones.append({
+            "funcion": "Si(x)",
+            "latex": r"\mathrm{Si}(x) = \int_0^x \frac{\sin(t)}{t} \, dt",
+            "descripcion": "La función seno integral aparece como primitiva de \\( \\frac{\\sin(x)}{x} \\). No tiene forma elemental, pero está perfectamente definida mediante una integral impropia convergente."
+        })
+
+    if "erf" in str(expr):
+        definiciones.append({
+            "funcion": "erf(x)",
+            "latex": r"\mathrm{erf}(x) = \frac{2}{\sqrt{\pi}} \int_0^x e^{-t^2} \, dt",
+            "descripcion": "La función error aparece como primitiva de \\( e^{-x^2} \\). Es clave en estadística y teoría de probabilidad."
+        })
+
+    if "Li" in str(expr):
+        definiciones.append({
+            "funcion": "Li(x)",
+            "latex": r"\mathrm{Li}(x) = \int_0^x \frac{dt}{\log(t)}",
+            "descripcion": "La función logaritmo integral aparece al integrar \\( \\frac{1}{\\log(x)} \\). Es importante en teoría de números."
+        })
+
+    if "Ci" in str(expr):
+        definiciones.append({
+            "funcion": "Ci(x)",
+            "latex": r"\mathrm{Ci}(x) = -\int_x^\infty \frac{\cos(t)}{t} \, dt",
+            "descripcion": "La función coseno integral aparece en análisis armónico y transformadas."
+        })
+
+    if "gamma" in str(expr):
+        definiciones.append({
+            "funcion": "Gamma(x)",
+            "latex": r"\Gamma(x) = \int_0^\infty t^{x-1} e^{-t} \, dt",
+            "descripcion": "La función Gamma extiende el factorial a los números reales y complejos."
+        })
+
+    if "beta" in str(expr):
+        definiciones.append({
+            "funcion": "Beta(x, y)",
+            "latex": r"B(x, y) = \int_0^1 t^{x-1} (1 - t)^{y-1} \, dt",
+            "descripcion": "La función Beta se relaciona con la función Gamma y aparece en teoría de probabilidad y combinatoria."
+        })
+
+    return definiciones
 
 @app.post("/resolver-integral")
 def resolver_integral(datos: InputDatos):
     try:
-        a_eval = float(sympify(datos.a))
-        b_eval = float(sympify(datos.b))
+        # Evaluar límites
+        a_sym = sympify(datos.a)
+        b_sym = sympify(datos.b)
+        a_eval = float(N(a_sym))
+        b_eval = float(N(b_sym))
 
         if a_eval >= b_eval:
             raise HTTPException(status_code=400, detail="El límite inferior debe ser menor que el superior.")
 
         f = sympify(datos.funcion)
+
         if str(f) == 'sin(x)/x':
             def f_lambda(x_val):
                 return np.where(x_val == 0, 1.0, np.sin(x_val)/x_val)
@@ -57,30 +104,31 @@ def resolver_integral(datos: InputDatos):
             except:
                 continue
 
-        try:
-            F_exacta = integrate(f, x)
-            F_exacta_tex = f"$$ {latex(F_exacta)} $$"
-        except:
-            F_exacta = "No tiene primitiva elemental"
-            F_exacta_tex = "No tiene primitiva elemental"
-
         funciones_especiales = []
-        if "erf" in str(F_exacta):
-            funciones_especiales.append({
-                "funcion": "erf(x)",
-                "latex": r"\mathrm{erf}(x) = \frac{2}{\sqrt{\pi}} \int_0^x e^{-t^2} \, dt",
-                "descripcion": "Función error asociada a integrales gaussianas."
-            })
-        if "Si" in str(F_exacta):
-            funciones_especiales.append({
-                "funcion": "Si(x)",
-                "latex": r"\mathrm{Si}(x) = \int_0^x \frac{\sin(t)}{t} \, dt",
-                "descripcion": "Función seno integral, primitiva de sin(x)/x."
-            })
+        F_exacta = None
+        F_exacta_tex = ""
+        valor_simbolico = "Valor simbólico no disponible"
+
+        # Detección manual
+        if str(f) == 'sin(x)/x':
+            F_exacta = Function('Si')(x)
+            F_exacta_tex = r"\mathrm{Si}(x)"
+            valor_simbolico = rf"\mathrm{{Si}}({latex(b_sym)}) - \mathrm{{Si}}({latex(a_sym)})"
+        else:
+            try:
+                F_exacta_expr = integrate(f, x)
+                F_exacta = F_exacta_expr
+                F_exacta_tex = f"{latex(F_exacta_expr)}"
+                if hasattr(F_exacta_expr, 'free_symbols') or 'erf' in str(F_exacta_expr):
+                    valor_simbolico = rf"{latex(F_exacta.subs(x, b_sym) - F_exacta.subs(x, a_sym))}"
+            except:
+                F_exacta_tex = "No tiene primitiva elemental"
+
+        funciones_especiales = obtener_funciones_especiales(f) + obtener_funciones_especiales(F_exacta)
 
         resultado_exacto = integrate(f, (x, a_eval, b_eval))
         resultado_exacto_val = float(N(resultado_exacto))
-        resultado_exacto_tex = f"$$ {latex(resultado_exacto)} $$"
+        resultado_exacto_tex = f"{latex(resultado_exacto)}"
 
         a_taylor = 0
         serie_general = Sum(diff(f, x, n).subs(x, a_taylor) / factorial(n) * (x - a_taylor)**n, (n, 0, oo))
@@ -104,7 +152,7 @@ def resolver_integral(datos: InputDatos):
         F_aproximada = integrate(f_series_expr, x)
         F_aproximada_tex = f"$$ {latex(F_aproximada)} $$"
 
-        integral_definida_tex = f"$$ \\int_{{{a_eval}}}^{{{b_eval}}} {latex(f)} \\, dx $$"
+        integral_definida_tex = f"$$ \\int_{{{latex(a_sym)}}}^{{{latex(b_sym)}}} {latex(f)} \\, dx $$"
 
         puntos = np.linspace(a_eval, b_eval, 1000)
         y_vals = f_lambda(puntos)
@@ -125,7 +173,6 @@ def resolver_integral(datos: InputDatos):
             lambda x_val: f_lambda(np.array([x_val]))[0], a_eval, b_eval
         )
 
-        # Instrucciones exportables a GeoGebra
         geogebra_expresiones = {
             "funcion": f"f(x) = {exportar_para_geogebra(f)}",
             "taylor": f"T(x) = {exportar_para_geogebra(f_series_expr)}",
@@ -133,13 +180,13 @@ def resolver_integral(datos: InputDatos):
         }
 
         return {
-            "primitiva_real": F_exacta_tex,
+            "primitiva_real": f"$$ {F_exacta_tex} $$",
             "funciones_especiales": funciones_especiales,
             "serie_taylor_general": sumatoria_general_tex,
             "explicacion_taylor_general": explicacion_taylor,
             "serie_taylor_finita": f_series_tex,
             "integral_definida_exacta": integral_definida_tex,
-            "integral_definida_valor": resultado_exacto_tex,
+            "integral_definida_valor": f"$$ {valor_simbolico} $$",
             "valor_numerico_exacto": resultado_exacto_val,
             "metodos_numericos": {
                 "simpson": integral_simpson,
