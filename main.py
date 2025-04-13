@@ -5,7 +5,8 @@ import numpy as np
 from sympy import (
     symbols, sympify, integrate, solveset, Interval, oo,
     diff, factorial, Sum, latex, simplify, N, sstr, Function,
-    erf, sqrt, pi, erfi, sin, cos, fresnels, fresnelc, Si, Ci, gamma, lowergamma, uppergamma
+    erf, sqrt, pi, erfi, sin, cos, fresnels, fresnelc, Si, Ci,
+    gamma, lowergamma, uppergamma
 )
 from scipy.integrate import simpson, quad
 import sympy as sp
@@ -21,8 +22,8 @@ x, n = symbols('x n', real=True)
 
 class InputDatos(BaseModel):
     funcion: str         # e.g. "sin(x^2)"
-    a: Union[str, float]# e.g. "-sqrt(pi)"
-    b: Union[str, float]# e.g. "sqrt(pi)"
+    a: Union[str, float] # e.g. "-sqrt(pi)"
+    b: Union[str, float] # e.g. "sqrt(pi)"
     n_terminos: int = Field(default=10, ge=1, le=20)
     tolerancia: float = Field(default=1e-6, ge=1e-10)
 
@@ -60,7 +61,7 @@ def crear_subintervalos(a_eval, b_eval, singularidades, epsilon=1e-8):
             puntos.append(s_left)
         if s_right < b_adj:
             puntos.append(s_right)
-    puntos.append(b_adj)
+    puntos.append(b_eval)
 
     subintervalos = []
     for i in range(len(puntos) - 1):
@@ -93,7 +94,6 @@ def monte_carlo_subintervalos(f_lambda, subintervalos, n_samples=10000):
         for _ in range(n_samples):
             x_rand = random.uniform(a_i, b_i)
             val = f_lambda(x_rand)
-            # Si da array, cogemos el primer valor
             if isinstance(val, (list, np.ndarray)):
                 val = val[0]
             acum += val
@@ -165,9 +165,6 @@ def obtener_funciones_especiales(expr):
             "latex": r"\Gamma(s, x) = \int_{x}^{\infty} t^{s-1} e^{-t}\,dt",
             "descripcion": "Función Gamma incompleta superior."
         })
-    # Puedes añadir detecciones para integrales elípticas (elliptic_k, elliptic_e, elliptic_pi),
-    # función exponencial integral (Ei), etc.
-
     return definiciones
 
 #############################################################
@@ -215,8 +212,8 @@ def resolver_integral(datos: InputDatos):
             def f_lambda(z):
                 z_arr = np.array(z, ndmin=1)
                 vals = np.where(np.isclose(z_arr, 0.0, atol=1e-14),
-                                    1.0,
-                                    np.sin(z_arr)/z_arr)
+                                1.0,
+                                np.sin(z_arr)/z_arr)
                 return vals if len(vals) > 1 else vals[0]
         else:
             f_lambda = sp.lambdify(x, f, modules=['numpy'])
@@ -224,11 +221,13 @@ def resolver_integral(datos: InputDatos):
         # 3) SINGULARIDADES
         advertencias = []
         singular_points = set()
+
         def es_finito(val):
             try:
                 return np.isfinite(val)
             except:
                 return False
+
         # Interior
         try:
             interior_sings = solveset(1/f, x, domain=Interval(a_eval, b_eval))
@@ -239,6 +238,7 @@ def resolver_integral(datos: InputDatos):
                     advertencias.append(f"⚠️ Posible singularidad en x={val_sing}")
         except:
             pass
+
         # Extremos
         try:
             va = f_lambda(a_eval)
@@ -295,8 +295,8 @@ def resolver_integral(datos: InputDatos):
         funciones_especiales_detectadas = list(all_funcs.values())
 
         # 6) INTEGRAL DEFINIDA EXACTA y VALOR NUMÉRICO
+        #    Forzamos un camino especial si es sin(x^2) o cos(x^2) y ya tenemos primitiva
         if f_str in ["sin(x^2)", "cos(x^2)"] and F_expr is not None:
-            # Valor exacto con la primitiva F_expr
             try:
                 resultado_exact_expr = F_expr.subs(x, b_sym) - F_expr.subs(x, a_sym)
                 resultado_exacto_val = float(N(resultado_exact_expr))
@@ -315,26 +315,31 @@ def resolver_integral(datos: InputDatos):
                 resultado_exacto_tex = f"No calculable simbólicamente (integración definida): {e}"
 
         # 7) SERIE DE TAYLOR
-        #   -> si sin(x^2) o cos(x^2), definimos la serie a mano
-        #      sino, derivadas genéricas
         if f_str == "sin(x^2)":
-            serie_infinita = r"\sin(x^2) = \sum_{k=0}^{\infty} \frac{(-1)^k\, x^{4k+2}}{(2k+1)!}"
-            sumatoria_general_tex = f"$$ {serie_infinita} <span class="math-block">"
-explicacion\_taylor \= "La serie de Taylor de \\\\\(\\\\sin\(x^2\)\\\\\) alrededor de \\\\\(x\=0\\\\\) es\:"
-terminos \= \[\]
-for k in range\(datos\.n\_terminos\)\:
-coef \= \(\-1\)\*\*k
-potencia \= 4\*k\+2
-term\_expr \= coef\*\(x\*\*potencia\)/factorial\(2\*k\+1\)
-terminos\.append\(term\_expr\)
-f\_series\_expr \= sum\(terminos\)
-serie\_latex\_terms \= \[latex\(t\) for t in terminos\]
-f\_series\_sumada \= " \+ "\.join\(serie\_latex\_terms\) \+ r" \+ \\cdots"
-f\_series\_tex \= f"</span> \\sin(x^2) = {f_series_sumada} <span class="math-block">"
-elif f\_str \=\= "cos\(x^2\)"\:
-serie\_infinita \= r"\\cos\(x^2\) \= \\sum\_\{k\=0\}^\{\\infty\} \\frac\{\(\-1\)^k\\, x^\{4k\}\}\{\(2k\)\!\}"
-sumatoria\_general\_tex \= f"</span> {serie_infinita} $$"
-explicacion_taylor = "La serie de Taylor de \\(\\cos(x^2)\\) alrededor de \\(x=0\\) es:"
+            # Serie infinita de sin(x^2)
+            serie_infinita = (
+                r"\sin(x^2) = \sum_{k=0}^{\infty} \frac{(-1)^k\, x^{4k+2}}{(2k+1)!}"
+            )
+            sumatoria_general_tex = f"$$ {serie_infinita} $$"
+            explicacion_taylor = "La serie de Taylor de \\(\\sin(x^2)\\) alrededor de \\(x=0\\) es:"
+            terminos = []
+            for k in range(datos.n_terminos):
+                coef = (-1)**k
+                potencia = 4*k + 2
+                term_expr = coef * (x**potencia) / factorial(2*k + 1)
+                terminos.append(term_expr)
+            f_series_expr = sum(terminos)
+            serie_latex_terms = [latex(t) for t in terminos]
+            f_series_sumada = " + ".join(serie_latex_terms) + r" + \cdots"
+            f_series_tex = f"$$ \\sin(x^2) = {f_series_sumada} $$"
+
+        elif f_str == "cos(x^2)":
+            # Serie infinita de cos(x^2)
+            serie_infinita = (
+                r"\cos(x^2) = \sum_{k=0}^{\infty} \frac{(-1)^k\, x^{4k}}{(2k)!}"
+            )
+            sumatoria_general_tex = f"$$ {serie_infinita} $$"
+            explicacion_taylor = "La serie de Taylor de \\(\\cos(x^2)\\) alrededor de \\(x=0\\) es:"
             terminos = []
             for k in range(datos.n_terminos):
                 coef = (-1)**k
@@ -345,8 +350,9 @@ explicacion_taylor = "La serie de Taylor de \\(\\cos(x^2)\\) alrededor de \\(x=0
             serie_latex_terms = [latex(t) for t in terminos]
             f_series_sumada = " + ".join(serie_latex_terms) + r" + \cdots"
             f_series_tex = f"$$ \\cos(x^2) = {f_series_sumada} $$"
+
         else:
-            # General
+            # Caso general
             a_taylor = 0
             serie_general_expr = Sum(
                 diff(f, (x, n)).subs(x, a_taylor)/factorial(n)*(x-a_taylor)**n, (n, 0, oo)
@@ -362,7 +368,8 @@ explicacion_taylor = "La serie de Taylor de \\(\\cos(x^2)\\) alrededor de \\(x=0
             serie_latex_terms = [latex(t) for t in terminos]
             f_series_sumada = " + ".join(serie_latex_terms) + r" + \cdots"
             f_series_tex = f"$$ {latex(f)} = {f_series_sumada} $$"
-        # Integral simbólica de la serie truncada
+
+        # Integración simbólica de la serie truncada
         try:
             F_aproximada = integrate(f_series_expr, x)
             F_aproximada_tex = f"$$ {latex(F_aproximada)} $$"
@@ -376,6 +383,7 @@ explicacion_taylor = "La serie de Taylor de \\(\\cos(x^2)\\) alrededor de \\(x=0
         subintervalos = crear_subintervalos(a_eval, b_eval, singular_points)
         integral_simpson, n_puntos_simpson = simpson_subintervalos(f_lambda, subintervalos)
         points_sing = sorted(list(singular_points))
+
         try:
             val_romberg, _ = quad(f_lambda, a_eval, b_eval, points=points_sing)
             integral_romberg = val_romberg
@@ -404,18 +412,14 @@ explicacion_taylor = "La serie de Taylor de \\(\\cos(x^2)\\) alrededor de \\(x=0
             "funcion_introducida": str(f),
             "primitiva_real": f"$$ {F_exacta_tex} $$",
             "funciones_especiales_detectadas": funciones_especiales_detectadas,
-
             "valor_simbolico_integral": f"$$ {valor_simbolico} $$",
             "valor_numerico_exacto": resultado_exacto_val,
             "valor_numerico_exacto_latex": f"$$ {resultado_exacto_tex} $$",
-
             "integral_definida": integral_definida_tex,
-
             "serie_taylor_general": sumatoria_general_tex,
             "explicacion_taylor_general": explicacion_taylor,
             "serie_taylor_finita": f_series_tex,
             "integral_serie_taylor": F_aproximada_tex,
-
             "metodos_numericos": {
                 "simpson": {"value": integral_simpson, "n_points": n_puntos_simpson},
                 "romberg": integral_romberg,
@@ -423,7 +427,6 @@ explicacion_taylor = "La serie de Taylor de \\(\\cos(x^2)\\) alrededor de \\(x=0
                 "montecarlo": integral_montecarlo
             },
             "advertencias": advertencias,
-
             "geogebra_expresiones": geogebra_expresiones
         }
 
