@@ -55,25 +55,24 @@ def generar_grafica_serie_taylor(expr, n_terminos=10, ruta_salida="static/taylor
     plt.savefig(ruta_salida)
     plt.close()
 
+# Función para exportar texto compatible con GeoGebra
+def exportar_para_geogebra(expr):
+    expr_str = sstr(expr)
+    expr_str = expr_str.replace('**', '^')      # Potencias
+    expr_str = expr_str.replace('*', '')        # Evita 'x*y'
+    expr_str = expr_str.replace(')/', ')/')     # Paréntesis ya cerrados
+    return expr_str
+
 @app.post("/resolver-integral")
 def resolver_integral(datos: InputDatos):
     try:
-        # Evaluar límites de integración
-        try:
-            a_eval = float(sympify(datos.a))
-            b_eval = float(sympify(datos.b))
-        except Exception as e:
-            raise HTTPException(status_code=400, detail=f"Límites inválidos: {e}")
+        a_eval = float(sympify(datos.a))
+        b_eval = float(sympify(datos.b))
 
         if a_eval >= b_eval:
             raise HTTPException(status_code=400, detail="El límite inferior debe ser menor que el superior.")
 
-        # Parsear función
-        try:
-            f = sympify(datos.funcion)
-        except Exception as e:
-            raise HTTPException(status_code=400, detail=f"Función no válida: {e}")
-
+        f = sympify(datos.funcion)
         if str(f) == 'sin(x)/x':
             def f_lambda(x_val):
                 return np.where(x_val == 0, 1.0, np.sin(x_val)/x_val)
@@ -158,13 +157,11 @@ def resolver_integral(datos: InputDatos):
             lambda x_val: f_lambda(np.array([x_val]))[0], a_eval, b_eval
         )
 
-        # Crear la gráfica de la función y su Taylor
         generar_grafica_serie_taylor(f, datos.n_terminos)
 
-        # Generar texto para copiar en GeoGebra
         geogebra_expresiones = {
-            "funcion": f"f(x) = {sstr(f)}",
-            "taylor": f"T(x) = {sstr(f_series_expr)}"
+            "funcion": f"f(x) = {exportar_para_geogebra(f)}",
+            "taylor": f"T(x) = {exportar_para_geogebra(f_series_expr)}"
         }
 
         return {
