@@ -4,7 +4,7 @@ from typing import Union
 import numpy as np
 from sympy import (
     symbols, sympify, integrate, solveset, Interval, oo,
-    diff, factorial, Sum, latex, simplify, N, sstr, Function
+    diff, factorial, Sum, latex, simplify, N, sstr, Function, erf, sqrt, pi
 )
 from scipy.integrate import simpson, quad
 import sympy as sp
@@ -71,7 +71,6 @@ def obtener_funciones_especiales(expr):
 @app.post("/resolver-integral")
 def resolver_integral(datos: InputDatos):
     try:
-        # ✅ Convertir límites simbólicos a float
         a_sym = sympify(datos.a)
         b_sym = sympify(datos.b)
         a_eval = float(N(a_sym))
@@ -99,25 +98,25 @@ def resolver_integral(datos: InputDatos):
                 continue
 
         funciones_especiales = []
-        F_exacta = None
         F_exacta_tex = ""
         valor_simbolico = "Valor simbólico no disponible"
 
         if str(f) == 'sin(x)/x':
-            F_exacta = Function('Si')(x)
             F_exacta_tex = r"\mathrm{Si}(x)"
             valor_simbolico = rf"\mathrm{{Si}}({latex(b_sym)}) - \mathrm{{Si}}({latex(a_sym)})"
+        elif str(f) == 'exp(-x**2)':
+            valor_simbolico = rf"2 \sqrt{{\pi}} \cdot \mathrm{{erf}}({latex(b_sym)})" if a_sym == -b_sym else \
+                              rf"\sqrt{{\pi}} \cdot (\mathrm{{erf}}({latex(b_sym)}) - \mathrm{{erf}}({latex(a_sym)}))"
+            F_exacta_tex = r"\frac{\sqrt{\pi}}{2} \cdot \mathrm{erf}(x)"
         else:
             try:
-                F_exacta_expr = integrate(f, x)
-                F_exacta = F_exacta_expr
-                F_exacta_tex = f"{latex(F_exacta_expr)}"
-                if hasattr(F_exacta_expr, 'free_symbols') or 'erf' in str(F_exacta_expr):
-                    valor_simbolico = rf"{latex(F_exacta.subs(x, b_sym) - F_exacta.subs(x, a_sym))}"
+                F_expr = integrate(f, x)
+                F_exacta_tex = f"{latex(F_expr)}"
+                valor_simbolico = rf"{latex(F_expr.subs(x, b_sym) - F_expr.subs(x, a_sym))}"
             except:
                 F_exacta_tex = "No tiene primitiva elemental"
 
-        funciones_especiales = obtener_funciones_especiales(f) + obtener_funciones_especiales(F_exacta)
+        funciones_especiales += obtener_funciones_especiales(f)
 
         resultado_exacto = integrate(f, (x, a_eval, b_eval))
         resultado_exacto_val = float(N(resultado_exacto))
@@ -169,7 +168,7 @@ def resolver_integral(datos: InputDatos):
         geogebra_expresiones = {
             "funcion": f"f(x) = {exportar_para_geogebra(f)}",
             "taylor": f"T(x) = {exportar_para_geogebra(f_series_expr)}",
-            "area_comando": f"Integral(f(x), {a_eval}, {b_eval})"
+            "area_comando": f"Integral(f, {a_eval}, {b_eval})"
         }
 
         return {
