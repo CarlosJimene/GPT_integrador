@@ -16,14 +16,14 @@ import random
 
 app = FastAPI()
 
-# Servir carpeta estática
+# Preparar carpeta estática para guardar imágenes
 os.makedirs("static", exist_ok=True)
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
-# Declaración simbólica
+# Variables simbólicas
 x, n = symbols('x n')
 
-# Modelo extendido para aceptar expresiones simbólicas en a y b
+# Entrada del usuario
 class InputDatos(BaseModel):
     funcion: str
     a: Union[str, float]
@@ -31,29 +31,28 @@ class InputDatos(BaseModel):
     n_terminos: int = Field(default=10, ge=1, le=20)
     tolerancia: float = Field(default=1e-6, ge=1e-10)
 
-# Función para graficar f(x) y su serie de Taylor
+# Función para graficar f(x) y su Taylor
 def generar_grafica_serie_taylor(expr, n_terminos=10, ruta_salida="static/taylor.png"):
     x = sp.Symbol('x')
-    f = expr
     taylor_expr = sum([
-        sp.simplify(sp.diff(f, x, i).subs(x, 0) / sp.factorial(i)) * x**i
+        sp.simplify(sp.diff(expr, x, i).subs(x, 0) / sp.factorial(i)) * x**i
         for i in range(n_terminos)
     ])
-    f_lamb = sp.lambdify(x, f, 'numpy')
+    f_lamb = sp.lambdify(x, expr, 'numpy')
     taylor_lamb = sp.lambdify(x, taylor_expr, 'numpy')
-    X = np.linspace(-1.5, 1.5, 400)
+    X = np.linspace(-2, 2, 500)
     Y_f = f_lamb(X)
     Y_taylor = taylor_lamb(X)
     plt.figure(figsize=(10, 6))
     plt.plot(X, Y_f, label=r"$f(x)$", color='blue', linewidth=2)
-    plt.plot(X, Y_taylor, label=f"Serie de Taylor (orden {n_terminos})", color='red', linestyle='--')
-    plt.title("Comparación entre $f(x)$ y su serie de Taylor en $x=0$")
+    plt.plot(X, Y_taylor, label=f"Taylor orden {n_terminos}", color='red', linestyle='--')
+    plt.title("f(x) vs Serie de Taylor centrada en x = 0")
     plt.xlabel("x")
     plt.ylabel("f(x)")
+    plt.grid(True)
     plt.axhline(0, color='gray', linestyle=':')
     plt.axvline(0, color='gray', linestyle=':')
     plt.legend()
-    plt.grid(True)
     plt.tight_layout()
     plt.savefig(ruta_salida)
     plt.close()
@@ -61,20 +60,21 @@ def generar_grafica_serie_taylor(expr, n_terminos=10, ruta_salida="static/taylor
 @app.post("/resolver-integral")
 def resolver_integral(datos: InputDatos):
     try:
-        # Evaluar límites simbólicos a y b
+        # Evaluar límites de integración
         try:
             a_eval = float(sympify(datos.a))
             b_eval = float(sympify(datos.b))
         except Exception as e:
-            raise HTTPException(status_code=400, detail=f"Límites no válidos: {e}")
-        if a_eval >= b_eval:
-            raise HTTPException(status_code=400, detail="El límite inferior debe ser menor que el límite superior.")
+            raise HTTPException(status_code=400, detail=f"Límites inválidos: {e}")
 
-        # Interpretar la función
+        if a_eval >= b_eval:
+            raise HTTPException(status_code=400, detail="El límite inferior debe ser menor que el superior.")
+
+        # Parsear función
         try:
             f = sympify(datos.funcion)
         except Exception as e:
-            raise HTTPException(status_code=400, detail=f"Función matemática no válida: {e}")
+            raise HTTPException(status_code=400, detail=f"Función no válida: {e}")
 
         if str(f) == 'sin(x)/x':
             def f_lambda(x_val):
@@ -88,7 +88,7 @@ def resolver_integral(datos: InputDatos):
             try:
                 val = float(p.evalf())
                 if a_eval < val < b_eval:
-                    advertencias.append("⚠️ La función tiene una posible singularidad dentro del intervalo.")
+                    advertencias.append("⚠️ Posible singularidad en el intervalo.")
             except:
                 continue
 
@@ -104,36 +104,26 @@ def resolver_integral(datos: InputDatos):
             funciones_especiales.append({
                 "funcion": "erf(x)",
                 "latex": r"\mathrm{erf}(x) = \frac{2}{\sqrt{\pi}} \int_0^x e^{-t^2} \, dt",
-                "descripcion": "La función error aparece como primitiva de \( e^{-x^2} \). Es una función especial sin forma elemental cerrada."
+                "descripcion": "Función error asociada a integrales gaussianas."
             })
         if "Si" in str(F_exacta):
             funciones_especiales.append({
                 "funcion": "Si(x)",
                 "latex": r"\mathrm{Si}(x) = \int_0^x \frac{\sin(t)}{t} \, dt",
-                "descripcion": "La función seno integral aparece como primitiva de \( \frac{\sin(x)}{x} \)."
+                "descripcion": "Función seno integral, primitiva de sin(x)/x."
             })
 
-        if str(a_eval) == "inf" or str(b_eval) == "inf":
-            resultado_exacto = limit(integrate(f, (x, a_eval, b_eval)), x, oo)
-            if resultado_exacto in [oo, -oo]:
-                raise HTTPException(status_code=400, detail="La integral tiene un valor infinito.")
-            resultado_exacto_val = float(N(resultado_exacto))
-            resultado_exacto_tex = f"$$ {latex(resultado_exacto)} $$"
-        else:
-            resultado_exacto = integrate(f, (x, a_eval, b_eval))
-            resultado_exacto_val = float(N(resultado_exacto))
-            resultado_exacto_tex = f"$$ {latex(resultado_exacto)} $$"
+        resultado_exacto = integrate(f, (x, a_eval, b_eval))
+        resultado_exacto_val = float(N(resultado_exacto))
+        resultado_exacto_tex = f"$$ {latex(resultado_exacto)} $$"
 
         a_taylor = 0
-        serie_general = Sum(
-            diff(f, x, n).subs(x, a_taylor) / factorial(n) * (x - a_taylor)**n,
-            (n, 0, oo)
-        )
+        serie_general = Sum(diff(f, x, n).subs(x, a_taylor) / factorial(n) * (x - a_taylor)**n, (n, 0, oo))
         sumatoria_general_tex = f"$$ {latex(serie_general)} $$"
 
         explicacion_taylor = (
             f"**Para la función** \\( {latex(f)} \\), "
-            f"**el desarrollo en serie de Taylor alrededor de** \\( x = {a_taylor} \\) **es:**"
+            f"**el desarrollo en serie de Taylor alrededor de** \\( x = 0 \\) **es:**"
         )
 
         terminos = []
@@ -167,10 +157,10 @@ def resolver_integral(datos: InputDatos):
             return (b - a) * total / n_samples
 
         integral_montecarlo = monte_carlo_integration(
-            lambda x_val: f_lambda(np.array([x_val]))[0],
-            a_eval, b_eval
+            lambda x_val: f_lambda(np.array([x_val]))[0], a_eval, b_eval
         )
 
+        # Crear la gráfica de la función y su Taylor
         generar_grafica_serie_taylor(f, datos.n_terminos)
 
         return {
@@ -189,7 +179,7 @@ def resolver_integral(datos: InputDatos):
                 "montecarlo": integral_montecarlo,
             },
             "advertencias": advertencias,
-            "grafica_taylor": "/static/taylor.png"
+            "grafica_url": "https://gpt-integrador.onrender.com/static/taylor.png"
         }
 
     except Exception as e:
