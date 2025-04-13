@@ -1,5 +1,4 @@
 from fastapi import FastAPI, HTTPException
-from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from typing import Union
 import numpy as np
@@ -8,21 +7,15 @@ from sympy import (
     diff, factorial, Sum, latex, simplify, N, sstr
 )
 from scipy.integrate import simpson, quad
-import matplotlib.pyplot as plt
 import sympy as sp
-import os
 import random
 
 app = FastAPI()
 
-# Preparar carpeta estática para guardar imágenes
-os.makedirs("static", exist_ok=True)
-app.mount("/static", StaticFiles(directory="static"), name="static")
-
 # Variables simbólicas
 x, n = symbols('x n')
 
-# Entrada del usuario
+# Modelo de entrada
 class InputDatos(BaseModel):
     funcion: str
     a: Union[str, float]
@@ -30,37 +23,12 @@ class InputDatos(BaseModel):
     n_terminos: int = Field(default=10, ge=1, le=20)
     tolerancia: float = Field(default=1e-6, ge=1e-10)
 
-# Función para graficar f(x) y su Taylor
-def generar_grafica_serie_taylor(expr, n_terminos=10, ruta_salida="static/taylor.png"):
-    taylor_expr = sum([
-        sp.simplify(sp.diff(expr, x, i).subs(x, 0) / sp.factorial(i)) * x**i
-        for i in range(n_terminos)
-    ])
-    f_lamb = sp.lambdify(x, expr, 'numpy')
-    taylor_lamb = sp.lambdify(x, taylor_expr, 'numpy')
-    X = np.linspace(-2, 2, 500)
-    Y_f = f_lamb(X)
-    Y_taylor = taylor_lamb(X)
-    plt.figure(figsize=(10, 6))
-    plt.plot(X, Y_f, label=r"$f(x)$", color='blue', linewidth=2)
-    plt.plot(X, Y_taylor, label=f"Taylor orden {n_terminos}", color='red', linestyle='--')
-    plt.title("f(x) vs Serie de Taylor centrada en x = 0")
-    plt.xlabel("x")
-    plt.ylabel("f(x)")
-    plt.grid(True)
-    plt.axhline(0, color='gray', linestyle=':')
-    plt.axvline(0, color='gray', linestyle=':')
-    plt.legend()
-    plt.tight_layout()
-    plt.savefig(ruta_salida)
-    plt.close()
-
-# Función para exportar texto compatible con GeoGebra
+# Exportador para sintaxis GeoGebra
 def exportar_para_geogebra(expr):
     expr_str = sstr(expr)
-    expr_str = expr_str.replace('**', '^')      # Potencias
-    expr_str = expr_str.replace('*', '')        # Evita 'x*y'
-    expr_str = expr_str.replace(')/', ')/')     # Paréntesis ya cerrados
+    expr_str = expr_str.replace('**', '^')
+    expr_str = expr_str.replace('*', '')
+    expr_str = expr_str.replace(')/', ')/')
     return expr_str
 
 @app.post("/resolver-integral")
@@ -157,11 +125,11 @@ def resolver_integral(datos: InputDatos):
             lambda x_val: f_lambda(np.array([x_val]))[0], a_eval, b_eval
         )
 
-        generar_grafica_serie_taylor(f, datos.n_terminos)
-
+        # Instrucciones exportables a GeoGebra
         geogebra_expresiones = {
             "funcion": f"f(x) = {exportar_para_geogebra(f)}",
-            "taylor": f"T(x) = {exportar_para_geogebra(f_series_expr)}"
+            "taylor": f"T(x) = {exportar_para_geogebra(f_series_expr)}",
+            "area_comando": f"Integral(f(x), {a_eval}, {b_eval})"
         }
 
         return {
@@ -180,7 +148,6 @@ def resolver_integral(datos: InputDatos):
                 "montecarlo": integral_montecarlo,
             },
             "advertencias": advertencias,
-            "grafica_url": "https://gpt-integrador.onrender.com/static/taylor.png",
             "geogebra_expresiones": geogebra_expresiones
         }
 
