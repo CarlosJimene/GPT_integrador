@@ -3,6 +3,8 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from typing import Union
 import numpy as np
+import json
+import urllib.parse
 from sympy import (
     symbols, sympify, integrate, series, lambdify, N,
     solveset, Interval, oo, log, sin, cos, exp, diff, factorial,
@@ -163,6 +165,18 @@ def resolver_integral(datos: InputDatos):
         # Crear la gráfica de la función y su Taylor
         generar_grafica_serie_taylor(f, datos.n_terminos)
 
+                # Crear la gráfica de la función y su Taylor
+        generar_grafica_serie_taylor(f, datos.n_terminos)
+
+        # Crear enlace a GeoGebra
+        geogebra_obj = {
+            "functions": [
+                {"latex": f"f(x)={latex(f)}"},
+                {"latex": f"T(x)={latex(f_series_expr)}"}
+            ]
+        }
+        geogebra_url = "https://www.geogebra.org/graphing?graph=" + urllib.parse.quote(json.dumps(geogebra_obj))
+
         return {
             "primitiva_real": F_exacta_tex,
             "funciones_especiales": funciones_especiales,
@@ -179,7 +193,8 @@ def resolver_integral(datos: InputDatos):
                 "montecarlo": integral_montecarlo,
             },
             "advertencias": advertencias,
-            "grafica_url": "https://gpt-integrador.onrender.com/static/taylor.png"
+            "grafica_url": "https://gpt-integrador.onrender.com/static/taylor.png",
+            "geogebra_url": geogebra_url
         }
 
     except Exception as e:

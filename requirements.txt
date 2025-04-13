@@ -1,6 +1,7 @@
 fastapi
-uvicorn
-sympy
-scipy
+uvicorn[standard]
+pydantic
 numpy
+scipy
+sympy
 matplotlib
