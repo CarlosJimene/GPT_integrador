@@ -6,8 +6,8 @@ from sympy import (
     symbols, sympify, integrate, solveset, Interval, oo,
     diff, factorial, Sum, latex, simplify, N, sstr, Function,
     erf, sqrt, pi, erfi, sin, cos, fresnels, fresnelc, Si, Ci,
-    gamma, lowergamma, uppergamma, binomial, Rational
-    # IMPORTACIONES de funciones elípticas eliminadas para evitar problemas en Render
+    gamma, lowergamma, uppergamma, binomial, Rational,
+    # Se eliminan importaciones directas de funciones elípticas para evitar problemas.
 )
 from scipy.integrate import simpson, quad
 import sympy as sp
@@ -22,7 +22,7 @@ app = FastAPI()
 x, n = symbols('x n', real=True)
 
 class InputDatos(BaseModel):
-    funcion: str         # Ejemplo: "sqrt(1 - x^4)" o "sin(x)/x" o "sin(x^2)"
+    funcion: str         # Ejemplo: "exp(-x^2)" o "sqrt(1 - x^4)" o "sin(x)/x" o "sin(x^2)"
     a: Union[str, float] # Ejemplo: "-sqrt(pi)" o "-0.5"
     b: Union[str, float] # Ejemplo: "sqrt(pi)" o "0.5"
     n_terminos: int = Field(default=10, ge=1, le=20)
@@ -34,8 +34,8 @@ class InputDatos(BaseModel):
 def exportar_para_geogebra(expr):
     """
     Convierte una expresión Sympy a string apto para GeoGebra:
-      - Se reemplaza '**' por '^'
-      - Se elimina '*' para multiplicación implícita.
+      - '**' se reemplaza por '^'
+      - Se eliminan los asteriscos para multiplicación implícita.
     """
     expr_str = sstr(expr)
     expr_str = expr_str.replace('**', '^').replace('*', '')
@@ -63,7 +63,6 @@ def crear_subintervalos(a_eval, b_eval, singularidades, epsilon=1e-8):
         if s_right < b_adj:
             puntos.append(s_right)
     puntos.append(b_adj)
-
     subintervalos = []
     for i in range(len(puntos) - 1):
         izq, der = puntos[i], puntos[i+1]
@@ -75,7 +74,7 @@ def simpson_subintervalos(f_lambda, subintervalos, n_points_simpson=1001):
     """
     Aplica la regla de Simpson en cada subintervalo y retorna:
       - El valor total de la integral.
-      - El número total de puntos usados.
+      - El número total de puntos utilizados.
     """
     total = 0.0
     total_points = 0
@@ -113,9 +112,7 @@ def obtener_funciones_especiales(expr):
     definiciones = []
     if expr is None:
         return definiciones
-
     expr_str = str(expr).lower()
-
     # Fresnel
     if "fresnels" in expr_str:
         definiciones.append({
@@ -142,14 +139,13 @@ def obtener_funciones_especiales(expr):
             "latex": r"\mathrm{erfi}(x) = -i\,\mathrm{erf}(i\,x)",
             "descripcion": "Función error imaginaria."
         })
-    # Si(x)
+    # Si(x) y Ci(x)
     if "si(" in expr_str:
         definiciones.append({
             "funcion": r"\mathrm{Si}(x)",
             "latex": r"\mathrm{Si}(x) = \int_{0}^{x}\frac{\sin(t)}{t}\,dt",
             "descripcion": "Seno integral."
         })
-    # Ci(x)
     if "ci(" in expr_str:
         definiciones.append({
             "funcion": r"\mathrm{Ci}(x)",
@@ -206,18 +202,10 @@ def obtener_funciones_especiales(expr):
 # PRIMITIVAS ESPECIALES
 #############################################################
 def primitiva_sin_x2():
-    """
-    Retorna la primitiva simbólica de sin(x^2) en términos de FresnelS:
-      F(x) = (sqrt(pi)/2)*FresnelS(x/sqrt(pi))
-    """
     from sympy import sqrt, pi, fresnels
     return (sqrt(pi)/2)*fresnels(x/sqrt(pi))
 
 def primitiva_cos_x2():
-    """
-    Retorna la primitiva simbólica de cos(x^2) en términos de FresnelC:
-      F(x) = (sqrt(pi)/2)*FresnelC(x/sqrt(pi))
-    """
     from sympy import sqrt, pi, fresnelc
     return (sqrt(pi)/2)*fresnelc(x/sqrt(pi))
 
@@ -228,15 +216,15 @@ def primitiva_cos_x2():
 def resolver_integral(datos: InputDatos):
     try:
         # 1) LÍMITES: Se conservan tanto la forma simbólica como la numérica.
-        a_sym = sympify(datos.a)   # Por ejemplo, "-sqrt(pi)"
-        b_sym = sympify(datos.b)   # Por ejemplo, "sqrt(pi)"
+        a_sym = sympify(datos.a)
+        b_sym = sympify(datos.b)
         a_eval = float(N(a_sym))
         b_eval = float(N(b_sym))
         if a_eval >= b_eval:
             raise HTTPException(status_code=400, detail="Límite inferior debe ser menor que el superior.")
 
         # 2) FUNCIÓN: Parseo del string.
-        f_str = datos.funcion.strip()  # Ej.: "sqrt(1 - x^4)"
+        f_str = datos.funcion.strip()
         f = sympify(f_str)
         f_lambda = sp.lambdify(x, f, modules=['numpy'])
 
@@ -278,16 +266,17 @@ def resolver_integral(datos: InputDatos):
             singular_points.add(b_eval)
             advertencias.append(f"⚠️ Singularidad en x={b_eval}")
 
-        # 4) Cálculo de la primitiva simbólica.
+        # 4) PRIMITIVA SIMBÓLICA
         if f_str == "sin(x^2)":
             F_expr = primitiva_sin_x2()
         elif f_str == "cos(x^2)":
             F_expr = primitiva_cos_x2()
         elif f_str == "sin(x)/x":
             F_expr = Si(x)
+        elif f_str == "exp(-x^2)":
+            F_expr = (sqrt(pi)/2)*erf(x)
         elif f_str == "sqrt(1 - x^4)":
             try:
-                # Forzamos el uso de meijerg para que la primitiva se exprese en términos de funciones elípticas
                 F_expr = sp.integrate(f, x, meijerg=True)
             except Exception as e:
                 F_expr = None
@@ -303,40 +292,57 @@ def resolver_integral(datos: InputDatos):
             F_exacta_tex = "No tiene primitiva elemental conocida"
             valor_simbolico = "Valor simbólico no disponible"
         else:
+            # Actualizamos el texto si en la primitiva aparece 'erf('
             F_exacta_tex = latex(F_expr)
             try:
                 valor_sym = F_expr.subs(x, b_sym) - F_expr.subs(x, a_sym)
                 valor_simbolico = latex(simplify(valor_sym))
-                # Si se detectan funciones elípticas en F_expr, indicarlo.
-                if "elliptic" in str(F_expr).lower():
-                    F_exacta_tex = "Primitiva en términos de funciones elípticas: " + latex(F_expr)
+                if "erf(" in str(F_expr).lower():
+                    F_exacta_tex = "Primitiva en términos de erf: " + latex(F_expr)
             except Exception as e:
+                valor_sym = None
                 valor_simbolico = f"Error al evaluar la primitiva: {e}"
 
-        # 5) Detección de funciones especiales.
+        # 5) FUNCIONES ESPECIALES DETECTADAS
         funcs_en_f = obtener_funciones_especiales(f)
-        funcs_en_F = obtener_funciones_especiales(F_expr) if F_expr is not None else []
+        funcs_en_F = obtener_funciones_especiales(F_expr) if F_expr else []
         all_funcs = {}
         for d in (funcs_en_f + funcs_en_F):
             all_funcs[d["funcion"]] = d
         funciones_especiales_detectadas = list(all_funcs.values())
 
-        # 6) Cálculo de la integral definida.
+        # 6) INTEGRAL DEFINIDA EXACTA Y VALOR NUMÉRICO
         try:
             resultado_sympy_def = integrate(f, (x, a_sym, b_sym))
-            resultado_exacto_val = float(N(resultado_sympy_def))
             resultado_exacto_tex = latex(resultado_sympy_def)
+            try:
+                resultado_exacto_val = float(N(resultado_sympy_def))
+            except Exception as e:
+                resultado_exacto_val = None
+                advertencias.append(f"⚠️ Error numérico en la integral definida: {e}")
         except Exception as e:
             resultado_exacto_val = None
             resultado_exacto_tex = f"Error en la integral definida: {e}"
 
-        # 7) Serie de Taylor.
-        from sympy import binomial  # Ya está importado, pero se puede dejar por claridad.
-        if f_str == "sqrt(1 - x^4)":
+        # 7) SERIE DE TAYLOR
+        from sympy import binomial  # Duplicado pero lo dejamos por claridad.
+        if f_str == "exp(-x^2)":
+            serie_infinita = r"e^{-x^2} = \sum_{n=0}^{\infty} \frac{(-1)^n x^{2n}}{n!}"
+            sumatoria_general_tex = f"$$ {serie_infinita} $$"
+            explicacion_taylor = "La serie de Taylor de \\(e^{-x^2}\\) alrededor de x=0 es:"
+            terminos = []
+            for n_ in range(datos.n_terminos):
+                term_expr = (-1)**n_ * x**(2*n_) / factorial(n_)
+                terminos.append(term_expr)
+            f_series_expr = sum(terminos)
+            serie_latex_terms = [latex(t) for t in terminos]
+            f_series_sumada = " + ".join(serie_latex_terms) + r" + \cdots"
+            f_series_tex = f"$$ e^{-x^2} = {f_series_sumada} $$"
+        elif f_str == "sqrt(1 - x^4)":
             serie_infinita = (r"\sqrt{1 - x^4} = \sum_{k=0}^{\infty} \binom{1/2}{k} (-1)^k x^{4k}")
             sumatoria_general_tex = f"$$ {serie_infinita} $$"
-            explicacion_taylor = ("La serie de Taylor de \\(\\sqrt{1 - x^4}\\) se obtiene de "
-                                    "la fórmula del binomio: (1-u)^(1/2) con u = x^4.")
+            explicacion_taylor = ("La serie de Taylor de \\(\\sqrt{1 - x^4}\\) se obtiene usando el binomio "
+                                  "\\((1-u)^{1/2}\\) con u = x^4.")
             terminos = []
             for k in range(datos.n_terminos):
                 coef = binomial(Rational(1,2), k)*(-1)**k
@@ -345,7 +351,7 @@ def resolver_integral(datos: InputDatos):
             f_series_expr = sum(terminos)
             serie_latex_terms = [latex(t) for t in terminos]
             f_series_sumada = " + ".join(serie_latex_terms) + r" + \cdots"
-            f_series_tex = f"$$ \\sqrt{{1 - x^4}} = {f_series_sumada} $$"
+            f_series_tex = f"$$ \sqrt{{1 - x^4}} = {f_series_sumada} $$"
         elif f_str == "sin(x^2)":
             serie_infinita = r"\sin(x^2) = \sum_{k=0}^{\infty} \frac{(-1)^k x^{4k+2}}{(2k+1)!}"
             sumatoria_general_tex = f"$$ {serie_infinita} $$"
@@ -377,7 +383,7 @@ def resolver_integral(datos: InputDatos):
         elif f_str == "sin(x)/x":
             serie_infinita = r"\frac{\sin(x)}{x} = \sum_{k=0}^{\infty} (-1)^k \frac{x^{2k}}{(2k+1)!}"
             sumatoria_general_tex = f"$$ {serie_infinita} $$"
-            explicacion_taylor = ("La serie de Taylor de \\(\\frac{\\sin(x)}{x}\\) alrededor de x=0 es:")
+            explicacion_taylor = ("La serie de Taylor de \\(\\frac{\sin(x)}{x}\\) alrededor de x=0 es:")
             terminos = []
             for k in range(datos.n_terminos):
                 term_expr = (-1)**k * x**(2*k) / factorial(2*k+1)
@@ -385,16 +391,16 @@ def resolver_integral(datos: InputDatos):
             f_series_expr = sum(terminos)
             serie_latex_terms = [latex(t) for t in terminos]
             f_series_sumada = " + ".join(serie_latex_terms) + r" + \cdots"
-            f_series_tex = f"$$ \\frac{{\\sin(x)}}{{x}} = {f_series_sumada} $$"
+            f_series_tex = f"$$ \\frac{{\sin(x)}}{{x}} = {f_series_sumada} $$"
         else:
             a_taylor = 0
-            serie_general_expr = Sum(diff(f, (x, n)).subs(x, a_taylor)/factorial(n)*(x - a_taylor)**n, (n, 0, oo))
+            serie_general_expr = Sum(diff(f, (x, n)).subs(x, a_taylor)/factorial(n)*(x-a_taylor)**n, (n, 0, oo))
             sumatoria_general_tex = f"$$ {latex(serie_general_expr)} $$"
-            explicacion_taylor = (f"La serie de Taylor de \\({latex(f)}\\) alrededor de x=0 es:")
+            explicacion_taylor = f"La serie de Taylor de \\({latex(f)}\\) alrededor de x=0 es:"
             terminos = []
             for i in range(datos.n_terminos):
                 deriv_i = diff(f, (x, i)).subs(x, a_taylor)
-                term_expr = simplify(deriv_i/factorial(i))*(x - a_taylor)**i
+                term_expr = simplify(deriv_i/factorial(i))*(x-a_taylor)**i
                 terminos.append(term_expr)
             f_series_expr = sum(terminos)
             serie_latex_terms = [latex(t) for t in terminos]
@@ -406,10 +412,10 @@ def resolver_integral(datos: InputDatos):
         except Exception as e:
             F_aproximada_tex = f"No se pudo calcular la integral de la serie truncada: {e}"
 
-        # 8) Integral definida en notación LaTeX (con límites simbólicos)
+        # 8) Integral definida en notación LaTeX
         integral_definida_tex = f"$$ \\int_{{{latex(a_sym)}}}^{{{latex(b_sym)}}} {latex(f)} \\, dx $$"
 
-        # 9) MÉTODOS NUMÉRICOS
+        # 9) Métodos numéricos
         subintervalos = crear_subintervalos(a_eval, b_eval, singular_points)
         integral_simpson, n_points_simpson = simpson_subintervalos(f_lambda, subintervalos)
         pts_sing = sorted(list(singular_points))
@@ -427,14 +433,14 @@ def resolver_integral(datos: InputDatos):
             advertencias.append(f"Gauss: {e}")
         integral_montecarlo = monte_carlo_subintervalos(f_lambda, subintervalos)
 
-        # 10) TEXTO PARA GEO GEBRA
+        # 10) Texto para GeoGebra: Se genera un string para copiar y pegar.
         texto_geogebra = (
             f"Función: f(x) = {exportar_para_geogebra(f)}\n"
             f"Taylor truncada: T(x) = {exportar_para_geogebra(f_series_expr)}\n"
             f"Área: Integral(f, {str(a_sym)}, {str(b_sym)})"
         )
 
-        # 11) DEVOLVER JSON
+        # 11) Devolver JSON
         return {
             "funcion_introducida": str(f),
             "primitiva_real": f"$$ {F_exacta_tex} $$",
