@@ -6,7 +6,8 @@ from sympy import (
     symbols, sympify, integrate, solveset, Interval, oo,
     diff, factorial, Sum, latex, simplify, N, sstr, Function,
     erf, sqrt, pi, erfi, sin, cos, fresnels, fresnelc, Si, Ci,
-    gamma, lowergamma, uppergamma, binomial, EllipticF, EllipticE
+    gamma, lowergamma, uppergamma, binomial
+    # OJO: quitamos EllipticF, EllipticE
 )
 from scipy.integrate import simpson, quad
 import sympy as sp
