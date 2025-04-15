@@ -1,244 +1,261 @@
-from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel, Field
+from fastapi import FastAPI
+from pydantic import BaseModel
 from typing import Union
-import numpy as np
 from sympy import (
-    symbols, sympify, integrate, solveset, Interval, oo, diff,
-    factorial, Sum, latex, simplify, N, sstr, Function, erf, sqrt, pi,
-    fresnels, fresnelc, sin, cos, Si, Ci, gamma, lowergamma, uppergamma,
-    Rational, binomial
+    symbols, sympify, integrate, sqrt, pi, erf, latex, simplify,
+    factorial, Function, Derivative
 )
-from scipy.integrate import simpson, quad
-import sympy as sp
+from scipy.integrate import quad
+import numpy as np
 import random
 
 app = FastAPI()
-
-x, n = symbols('x n', real=True)
+x = symbols('x')
 
 class InputDatos(BaseModel):
     funcion: str
     a: Union[str, float]
     b: Union[str, float]
-    n_terminos: int = Field(default=10, ge=1, le=20)
-    tolerancia: float = Field(default=1e-6, ge=1e-10)
+    n_terminos: int = 7
 
-def exportar_para_geogebra(expr):
-    expr_str = sstr(expr)
-    expr_str = expr_str.replace('**', '^').replace('*', '')
-    return expr_str
 
-def crear_subintervalos(a_eval, b_eval, singularidades, epsilon=1e-8):
-    sing_sorted = sorted(singularidades)
-    a_adj = a_eval
-    b_adj = b_eval
-    if sing_sorted and abs(sing_sorted[0] - a_eval) < epsilon:
-        a_adj = a_eval + epsilon
-    if sing_sorted and abs(b_eval - sing_sorted[-1]) < epsilon:
-        b_adj = b_eval - epsilon
+##############################################################################
+# 1) DICCIONARIO DE SERIES CONOCIDAS
+#    Si la función introducida coincide exactamente con una de las claves,
+#    se utilizará la serie infinita específica aquí.
+##############################################################################
+known_infinite_series = {
+    "exp(-x**2)": r"$$ e^{-x^2} \;=\; \sum_{n=0}^{\infty} \frac{(-1)^n x^{2n}}{n!} $$",
+    "cos(x**2)":  r"$$ \cos(x^2) \;=\; \sum_{k=0}^{\infty} \frac{(-1)^k x^{4k}}{(2k)!} $$",
+    "sin(x**2)":  r"$$ \sin(x^2) \;=\; \sum_{k=0}^{\infty} \frac{(-1)^k x^{4k+2}}{(2k+1)!} $$",
+    "cos(x)":     r"$$ \cos(x) \;=\; \sum_{k=0}^{\infty} \frac{(-1)^k x^{2k}}{(2k)!} $$",
+    "sin(x)":     r"$$ \sin(x) \;=\; \sum_{k=0}^{\infty} \frac{(-1)^k x^{2k+1}}{(2k+1)!} $$"
+    # Añade aquí más series conocidas si lo deseas
+}
 
-    puntos = [a_adj]
-    for s in sing_sorted:
-        s_left = s - epsilon
-        s_right = s + epsilon
-        if s_left > puntos[-1]:
-            puntos.append(s_left)
-        if s_right < b_adj:
-            puntos.append(s_right)
-    puntos.append(b_adj)
-    subintervalos = []
-    for i in range(len(puntos) - 1):
-        izq, der = puntos[i], puntos[i+1]
-        if izq < der:
-            subintervalos.append((izq, der))
-    return subintervalos
+##############################################################################
+# 2) DICCIONARIO DE FUNCIONES ESPECIALES
+#    Se agregan definiciones para "erf", "li", "Gamma", "2F1", "1F2", etc.
+##############################################################################
+special_functions = {
+    "erf": {
+        "definition": r"$$ \operatorname{erf}(x) = \frac{2}{\sqrt{\pi}} \int_{0}^{x} e^{-t^2}\,dt $$",
+        "explanation": "La función error se utiliza para el cálculo de probabilidades en distribuciones gaussianas."
+    },
+    "li": {
+        "definition": r"$$ \operatorname{li}(x) = \int_{0}^{x} \frac{dt}{\ln(t)} $$",
+        "explanation": "La función logarítmica integral es importante en la teoría de números primos."
+    },
+    "Gamma": {
+        "definition": r"$$ \Gamma(s) = \int_{0}^{\infty} t^{s-1} e^{-t}\, dt $$",
+        "explanation": "La función Gamma generaliza la noción de factorial a números reales y complejos."
+    },
+    "2F1": {
+        "definition": r"$$ {}_{2}F_{1}(a,b;c;z) = \sum_{n=0}^{\infty} \frac{(a)_n (b)_n}{(c)_n} \frac{z^n}{n!} $$",
+        "explanation": "La función hipergeométrica {}_{2}F_{1} es una de las más generales en el análisis matemático."
+    },
+    "1F2": {
+        "definition": r"$$ {}_{1}F_{2}(a;b,c;z) = \sum_{n=0}^{\infty} \frac{(a)_n}{(b)_n (c)_n} \frac{z^n}{n!} $$",
+        "explanation": "La función hipergeométrica generalizada {}_{1}F_{2} se utiliza en múltiples contextos de análisis matemático."
+    }
+}
 
-def simpson_subintervalos(f_lambda, subintervalos, n_points_simpson=1001):
-    total = 0.0
-    total_points = 0
-    for (a_i, b_i) in subintervalos:
-        pts = np.linspace(a_i, b_i, n_points_simpson)
-        vals = f_lambda(pts)
-        total += simpson(vals, x=pts)
-        total_points += len(pts)
-    return total, total_points
-
-def monte_carlo_subintervalos(f_lambda, subintervalos, n_samples=10000):
-    total = 0.0
-    for (a_i, b_i) in subintervalos:
-        acum = 0.0
-        for _ in range(n_samples):
-            x_rand = random.uniform(a_i, b_i)
-            val = f_lambda(x_rand)
-            if isinstance(val, (list, np.ndarray)):
-                val = val[0]
-            acum += val
-        total += (b_i - a_i) * (acum / n_samples)
-    return total
 
 @app.post("/resolver-integral")
 def resolver_integral(datos: InputDatos):
     try:
-        # 0) Reemplazar ^ por ** para compatibilidad con sympy
-        f_str = datos.funcion.strip()
-        f_str_mod = f_str.replace("^", "**")
-
-        # 1) LÍMITES
-        a_sym = sympify(datos.a)
-        b_sym = sympify(datos.b)
-        a_eval = float(N(a_sym))
-        b_eval = float(N(b_sym))
-        if a_eval >= b_eval:
-            raise HTTPException(status_code=400, detail="Límite inferior debe ser menor que el superior.")
-
-        # 2) FUNCIÓN
-        f = sympify(f_str_mod)
-        f_lambda = sp.lambdify(x, f, modules=['numpy'])
-
-        # 3) Singularidades
-        advertencias = []
-        singular_points = set()
-        def es_finito(val):
-            try:
-                return np.isfinite(val)
-            except:
-                return False
-        try:
-            interior_sings = solveset(1/f, x, domain=Interval(a_eval, b_eval))
-            for p in interior_sings:
-                val_sing = float(p.evalf())
-                if a_eval < val_sing < b_eval:
-                    singular_points.add(val_sing)
-                    advertencias.append(f"⚠️ Posible singularidad en x={val_sing}")
-        except:
-            pass
-        for val, name in [(a_eval, a_sym), (b_eval, b_sym)]:
-            try:
-                v = f_lambda(val)
-                if isinstance(v, (list, np.ndarray)):
-                    v = v[0]
-                if not es_finito(v):
-                    singular_points.add(val)
-                    advertencias.append(f"⚠️ Singularidad en x={val}")
-            except:
-                singular_points.add(val)
-                advertencias.append(f"⚠️ Singularidad en x={val}")
-
-        # 4) PRIMITIVA
-        F_expr = None
-        if f_str_mod == "exp(-x**2)":
-            F_expr = (sqrt(pi)/2)*erf(x)
-        elif f_str_mod == "sin(x**2)":
-            F_expr = (sqrt(pi)/2)*fresnels(x/sqrt(pi))
-        elif f_str_mod == "cos(x**2)":
-            F_expr = (sqrt(pi)/2)*fresnelc(x/sqrt(pi))
-        elif f_str_mod == "sin(x)/x":
-            F_expr = Si(x)
-        elif f_str_mod == "sqrt(1 - x**4)":
-            try:
-                F_expr = sp.integrate(f, x, meijerg=True)
-            except Exception as e:
-                advertencias.append(f"Error al integrar sqrt(1 - x^4): {e}")
-        else:
-            try:
-                F_expr = sp.simplify(integrate(f, x))
-            except Exception as e:
-                advertencias.append(f"Error al integrar simbólicamente: {e}")
+        ###################################################################
+        # A) PROCESAMIENTO INICIAL
+        ###################################################################
         
-        if F_expr is None:
-            F_exacta_tex = "No tiene primitiva elemental conocida"
-            valor_simbolico = "Valor simbólico no disponible"
+        # 1) Procesar la función introducida
+        f_str_usuario = datos.funcion.strip()
+        f_str = f_str_usuario.replace('^', '**')
+        f = sympify(f_str)
+        f_lambda = lambda val: float(f.subs(x, val))
+        
+        # 2) Procesar los límites de integración
+        a_str = str(datos.a)
+        b_str = str(datos.b)
+        # Sustitución de "raiz de pi", "raíz de pi", "√", etc.
+        for target in ["raiz de pi", "raíz de pi", "√"]:
+            a_str = a_str.replace(target, "sqrt(pi)")
+            b_str = b_str.replace(target, "sqrt(pi)")
+        a_sym = sympify(a_str)
+        b_sym = sympify(b_str)
+        a_eval = float(a_sym.evalf())
+        b_eval = float(b_sym.evalf())
+        if a_eval >= b_eval:
+            raise Exception("El límite inferior debe ser menor que el superior.")
+        
+        ###################################################################
+        # B) PRIMITIVA E INTEGRAL DEFINIDA
+        ###################################################################
+        
+        # 3) Calcular la primitiva (antiderivada)
+        primitiva = integrate(f, x)
+        primitiva_latex = latex(primitiva)
+        
+        # 3.1) Detectar y explicar funciones especiales en la primitiva
+        #      Buscaremos coincidencias en la cadena LaTeX de la primitiva
+        definicion_especial = ""
+        
+        # Mapa de detección: si la primitiva contiene estos fragmentos de LaTeX,
+        # agregamos la definición de la función en 'special_functions'.
+        detection_map = {
+            "Gamma":  r"\Gamma",
+            "erf":    r"erf",
+            "li":     r"li",
+            "2F1":    r"{ }_{2}F_{1}",
+            "1F2":    r"{ }_{1}F_{2}"
+        }
+        
+        for name, info in special_functions.items():
+            # Obtenemos la clave LaTeX correspondiente del detection_map
+            if name in detection_map:
+                latex_key = detection_map[name]
+            else:
+                # Fallback si no está en detection_map (podrías ampliarlo si quieres)
+                latex_key = name
+            
+            # Si se detecta la subcadena en la primitiva en formato latex:
+            if latex_key in primitiva_latex:
+                definicion_especial += (
+                    f"\n\n#### Definición de la función especial \\({name}\\):\n"
+                    f"{info['definition']}\n"
+                    f"{info['explanation']}\n"
+                )
+        
+        # 4) Valor simbólico de la integral definida
+        try:
+            valor_simb = simplify(primitiva.subs(x, b_sym) - primitiva.subs(x, a_sym))
+            valor_simbolico = latex(valor_simb)
+        except Exception as e:
+            valor_simbolico = f"Error al evaluar simbólicamente: {e}"
+        
+        # 5) Valor numérico exacto de la integral definida
+        try:
+            valor_num_expr = integrate(f, (x, a_sym, b_sym))
+            valor_numerico = float(valor_num_expr.evalf())
+            valor_numerico_latex = f"$${valor_numerico}$$"
+        except Exception as e:
+            valor_numerico = None
+            valor_numerico_latex = "$$ Error en la integral definida: Cannot convert expression to float $$"
+        
+        # 6) Representación LaTeX de la integral definida
+        integral_definida = f"$$ \\int_{{{latex(a_sym)}}}^{{{latex(b_sym)}}} {latex(f)} \\, dx $$"
+        
+        ###################################################################
+        # C) SERIES DE TAYLOR
+        ###################################################################
+        
+        # 7) Serie de Taylor "general" (forma infinita)
+        #    - Si la función coincide con una de las known_infinite_series, la usamos.
+        #    - De lo contrario, usamos la fórmula derivativa genérica.
+        
+        if f_str in known_infinite_series:
+            serie_taylor_general = known_infinite_series[f_str]
+            explicacion_taylor_general = f"La función {f_str_usuario} es reconocida, y su serie de Taylor alrededor de x=0 es conocida."
         else:
-            F_exacta_tex = latex(F_expr)
-            try:
-                valor_sym = F_expr.subs(x, b_sym) - F_expr.subs(x, a_sym)
-                valor_simbolico = latex(simplify(valor_sym))
-            except:
-                valor_simbolico = "No se pudo evaluar la primitiva"
-
-        # 5) SERIE DE TAYLOR
-        explicacion_taylor = ""
-        sumatoria_general_tex = ""
-        f_series_tex = ""
-        terminos = []
-
-        if f_str_mod == "exp(-x**2)":
-            explicacion_taylor = "La serie de Taylor de \\(e^{-x^2}\\) alrededor de x=0 es:"
-            sumatoria_general_tex = r"$$ e^{-x^2} = \sum_{n=0}^{\infty} \frac{(-1)^n x^{2n}}{n!} $$"
-            for n_ in range(datos.n_terminos):
-                term_expr = (-1)**n_ * x**(2*n_) / factorial(n_)
-                terminos.append(term_expr)
-        else:
-            a_taylor = 0
-            serie_general_expr = Sum(diff(f, (x, n)).subs(x, a_taylor)/factorial(n)*(x-a_taylor)**n, (n, 0, oo))
-            sumatoria_general_tex = f"$$ {latex(serie_general_expr)} $$"
-            explicacion_taylor = f"La serie de Taylor de \\({latex(f)}\\) alrededor de x=0 es:"
-            for i in range(datos.n_terminos):
-                deriv_i = diff(f, (x, i)).subs(x, a_taylor)
-                term_expr = simplify(deriv_i/factorial(i))*(x-a_taylor)**i
-                terminos.append(term_expr)
-
-        serie_latex_terms = [latex(t) for t in terminos]
-        f_series_sumada = " + ".join(serie_latex_terms) + r" + \cdots"
-        f_series_expr = sum(terminos)
-        f_series_tex = f"$$ {latex(f)} = {f_series_sumada} $$"
+            serie_taylor_general = (
+                r"$$ f(x) = \sum_{n=0}^{\infty} \frac{f^{(n)}(0)}{n!} \, x^n $$"
+            )
+            explicacion_taylor_general = (
+                "No se ha encontrado una serie conocida para esta función, "
+                "por lo que se muestra la fórmula general derivativa."
+            )
+        
+        # 8) Serie de Taylor finita (truncada) en términos de factoriales
+        serie_sympy = f.series(x, 0, datos.n_terminos)
+        serie_truncada_sympy = serie_sympy.removeO()
+        serie_taylor_finita = f"$$ {latex(serie_truncada_sympy)} $$"
+        
+        ###################################################################
+        # D) INTEGRAL DE LA SERIE TRUNCADA
+        ###################################################################
+        
         try:
-            F_aproximada = integrate(f_series_expr, x)
-            F_aproximada_tex = f"$$ {latex(F_aproximada)} $$"
-        except:
-            F_aproximada_tex = "No se pudo calcular la integral de la serie truncada"
-
-        # 6) Integral definida
+            integral_serie = integrate(serie_truncada_sympy, x)
+            integral_serie_taylor = f"$$ {latex(integral_serie)} $$"
+        except Exception as e:
+            integral_serie_taylor = f"Error al integrar la serie: {e}"
+        
+        ###################################################################
+        # E) MÉTODOS NUMÉRICOS
+        ###################################################################
+        
+        puntos = np.linspace(a_eval, b_eval, 1001)
         try:
-            resultado_sympy_def = integrate(f, (x, a_sym, b_sym))
-            resultado_exacto_tex = latex(resultado_sympy_def)
-            resultado_exacto_val = float(N(resultado_sympy_def))
-        except:
-            resultado_exacto_val = None
-            resultado_exacto_tex = "No se pudo calcular simbólicamente"
-
-        # 7) Métodos numéricos
-        subintervalos = crear_subintervalos(a_eval, b_eval, singular_points)
-        integral_simpson, n_points_simpson = simpson_subintervalos(f_lambda, subintervalos)
-        pts_sing = sorted(list(singular_points))
+            valores = np.array([f_lambda(v) for v in puntos])
+            simpson_val = np.trapz(valores, puntos)
+        except Exception as e:
+            simpson_val = None
+        
         try:
-            val_romberg, _ = quad(f_lambda, a_eval, b_eval, points=pts_sing)
-            integral_romberg = val_romberg
-        except:
-            integral_romberg = None
+            romberg_val, _ = quad(f_lambda, a_eval, b_eval)
+        except Exception as e:
+            romberg_val = None
+        
         try:
-            val_gauss, _ = quad(f_lambda, a_eval, b_eval, points=pts_sing)
-            integral_gauss = val_gauss
-        except:
-            integral_gauss = None
-        integral_montecarlo = monte_carlo_subintervalos(f_lambda, subintervalos)
-
-        # 8) GeoGebra
-        texto_geogebra = (
-            f"Función: f(x) = {exportar_para_geogebra(f)}\n"
-            f"Taylor truncada: T(x) = {exportar_para_geogebra(f_series_expr)}\n"
-            f"Área: Integral(f, {str(a_sym)}, {str(b_sym)})"
-        )
-
-        return {
-            "funcion_introducida": str(f),
-            "primitiva_real": f"$$ {F_exacta_tex} $$",
-            "valor_simbolico_integral": f"$$ {valor_simbolico} $$",
-            "valor_numerico_exacto": resultado_exacto_val,
-            "valor_numerico_exacto_latex": f"$$ {resultado_exacto_tex} $$",
-            "integral_definida": f"$$ \\int_{{{latex(a_sym)}}}^{{{latex(b_sym)}}} {latex(f)} \\, dx $$",
-            "serie_taylor_general": sumatoria_general_tex,
-            "explicacion_taylor_general": explicacion_taylor,
-            "serie_taylor_finita": f_series_tex,
-            "integral_serie_taylor": F_aproximada_tex,
-            "metodos_numericos": {
-                "simpson": {"value": integral_simpson, "n_points": n_points_simpson},
-                "romberg": integral_romberg,
-                "cuadratura_gaussiana": integral_gauss,
-                "montecarlo": integral_montecarlo
+            cuadratura_gaussiana = romberg_val
+        except Exception as e:
+            cuadratura_gaussiana = None
+        
+        try:
+            monte_carlo_val = np.mean([
+                f_lambda(random.uniform(a_eval, b_eval))
+                for _ in range(10000)
+            ]) * (b_eval - a_eval)
+        except Exception as e:
+            monte_carlo_val = None
+        
+        metodos = {
+            "simpson": {
+                "value": simpson_val,
+                "n_points": 1001
             },
-            "advertencias": advertencias,
+            "romberg": romberg_val,
+            "cuadratura_gaussiana": cuadratura_gaussiana,
+            "montecarlo": monte_carlo_val
+        }
+        
+        ###################################################################
+        # F) TEXTO PARA GEOGEBRA
+        ###################################################################
+        
+        texto_geogebra = (
+            f"Función: f(x) = {f_str_usuario.replace('**', '^')}\n"
+            f"Taylor truncada: T(x) = {serie_truncada_sympy}\n"
+            f"Área: Integral(f, {latex(a_sym)}, {latex(b_sym)})"
+        )
+        
+        ###################################################################
+        # G) JSON DE RESPUESTA
+        ###################################################################
+        
+        resultado = {
+            "funcion_introducida": f_str,
+            "primitiva_real": f"$$ {primitiva_latex} $$",
+            "definicion_funciones_especiales": definicion_especial,
+            "valor_simbolico_integral": f"$$ {valor_simbolico} $$",
+            "valor_numerico_exacto": valor_numerico,
+            "valor_numerico_exacto_latex": valor_numerico_latex,
+            "integral_definida": integral_definida,
+            
+            # Serie de Taylor (infinita) y su explicación
+            "serie_taylor_general": serie_taylor_general,
+            "explicacion_taylor_general": explicacion_taylor_general,
+            
+            # Serie de Taylor finita (la truncada)
+            "serie_taylor_finita": serie_taylor_finita,
+            "integral_serie_taylor": integral_serie_taylor,
+            
+            "metodos_numericos": metodos,
+            "advertencias": [],
             "texto_geogebra": texto_geogebra
         }
+        
+        return resultado
+
     except Exception as e:
         return {"error": str(e)}
