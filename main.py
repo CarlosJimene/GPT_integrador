@@ -3,8 +3,9 @@ from pydantic import BaseModel
 from typing import Union
 from sympy import (
     symbols, sympify, integrate, sqrt, pi, erf, latex, simplify,
-    factorial, Function, Derivative
+    factorial, Function, Derivative, Add, Mul, Pow
 )
+from sympy.printing.pycode import pycode
 from scipy.integrate import quad
 import numpy as np
 import random
@@ -30,7 +31,6 @@ known_infinite_series = {
     "sin(x**2)":  r"$$ \sin(x^2) \;=\; \sum_{k=0}^{\infty} \frac{(-1)^k x^{4k+2}}{(2k+1)!} $$",
     "cos(x)":     r"$$ \cos(x) \;=\; \sum_{k=0}^{\infty} \frac{(-1)^k x^{2k}}{(2k)!} $$",
     "sin(x)":     r"$$ \sin(x) \;=\; \sum_{k=0}^{\infty} \frac{(-1)^k x^{2k+1}}{(2k+1)!} $$"
-    # Añade aquí más series conocidas si lo deseas
 }
 
 ##############################################################################
@@ -61,6 +61,32 @@ special_functions = {
 }
 
 
+def expr_to_geogebra(expr):
+    """
+    Convierte una expresión Sympy en un string adecuado para GeoGebra,
+    colocando paréntesis de forma que no se confundan los exponentes.
+    """
+    if expr.is_Add:
+        # Suma de términos, unimos con " + " (respetar signos si hay negativos)
+        # Observación: si un término es negativo, Sympy lo manejará como Add(..., -Term)
+        # Podemos filtrar los sign con str() si se desea. Por simplicidad, unimos con " + " y el str() mostrará el signo.
+        return " + ".join(expr_to_geogebra(arg) for arg in expr.args)
+    elif expr.is_Mul:
+        # Producto de factores
+        # Ej: 2*x -> "2*(x)"
+        # Ej: -1*x^2 -> "(-1)*(x^2)"
+        # Observa que multiplicación puede incluir signos.
+        factors = expr.as_ordered_factors()
+        return "*".join(f"({expr_to_geogebra(fac)})" for fac in factors)
+    elif expr.is_Pow:
+        # Potencia base^exp
+        base, exponent = expr.as_base_exp()
+        return f"({expr_to_geogebra(base)})^({expr_to_geogebra(exponent)})"
+    else:
+        # Números, símbolos, etc.
+        return str(expr)
+
+
 @app.post("/resolver-integral")
 def resolver_integral(datos: InputDatos):
     try:
@@ -77,7 +103,6 @@ def resolver_integral(datos: InputDatos):
         # 2) Procesar los límites de integración
         a_str = str(datos.a)
         b_str = str(datos.b)
-        # Sustitución de "raiz de pi", "raíz de pi", "√", etc.
         for target in ["raiz de pi", "raíz de pi", "√"]:
             a_str = a_str.replace(target, "sqrt(pi)")
             b_str = b_str.replace(target, "sqrt(pi)")
@@ -97,11 +122,7 @@ def resolver_integral(datos: InputDatos):
         primitiva_latex = latex(primitiva)
         
         # 3.1) Detectar y explicar funciones especiales en la primitiva
-        #      Buscaremos coincidencias en la cadena LaTeX de la primitiva
         definicion_especial = ""
-        
-        # Mapa de detección: si la primitiva contiene estos fragmentos de LaTeX,
-        # agregamos la definición de la función en 'special_functions'.
         detection_map = {
             "Gamma":  r"\Gamma",
             "erf":    r"erf",
@@ -111,14 +132,10 @@ def resolver_integral(datos: InputDatos):
         }
         
         for name, info in special_functions.items():
-            # Obtenemos la clave LaTeX correspondiente del detection_map
             if name in detection_map:
                 latex_key = detection_map[name]
             else:
-                # Fallback si no está en detection_map (podrías ampliarlo si quieres)
                 latex_key = name
-            
-            # Si se detecta la subcadena en la primitiva en formato latex:
             if latex_key in primitiva_latex:
                 definicion_especial += (
                     f"\n\n#### Definición de la función especial \\({name}\\):\n"
@@ -133,7 +150,7 @@ def resolver_integral(datos: InputDatos):
         except Exception as e:
             valor_simbolico = f"Error al evaluar simbólicamente: {e}"
         
-        # 5) Valor numérico exacto de la integral definida
+        # 5) Valor numérico exacto
         try:
             valor_num_expr = integrate(f, (x, a_sym, b_sym))
             valor_numerico = float(valor_num_expr.evalf())
@@ -142,20 +159,19 @@ def resolver_integral(datos: InputDatos):
             valor_numerico = None
             valor_numerico_latex = "$$ Error en la integral definida: Cannot convert expression to float $$"
         
-        # 6) Representación LaTeX de la integral definida
+        # 6) Integral definida (LaTeX)
         integral_definida = f"$$ \\int_{{{latex(a_sym)}}}^{{{latex(b_sym)}}} {latex(f)} \\, dx $$"
         
         ###################################################################
         # C) SERIES DE TAYLOR
         ###################################################################
         
-        # 7) Serie de Taylor "general" (forma infinita)
-        #    - Si la función coincide con una de las known_infinite_series, la usamos.
-        #    - De lo contrario, usamos la fórmula derivativa genérica.
-        
+        # 7) Serie de Taylor "general"
         if f_str in known_infinite_series:
             serie_taylor_general = known_infinite_series[f_str]
-            explicacion_taylor_general = f"La función {f_str_usuario} es reconocida, y su serie de Taylor alrededor de x=0 es conocida."
+            explicacion_taylor_general = (
+                f"La función {f_str_usuario} es reconocida, y su serie de Taylor alrededor de x=0 es conocida."
+            )
         else:
             serie_taylor_general = (
                 r"$$ f(x) = \sum_{n=0}^{\infty} \frac{f^{(n)}(0)}{n!} \, x^n $$"
@@ -222,11 +238,16 @@ def resolver_integral(datos: InputDatos):
         ###################################################################
         # F) TEXTO PARA GEOGEBRA
         ###################################################################
+        # Usamos la función expr_to_geogebra para evitar confusión de exponentes.
+        geo_f_str = f_str_usuario.replace('**', '^')
+        geo_series = expr_to_geogebra(serie_truncada_sympy)
+        geo_a = expr_to_geogebra(a_sym)
+        geo_b = expr_to_geogebra(b_sym)
         
         texto_geogebra = (
-            f"Función: f(x) = {f_str_usuario.replace('**', '^')}\n"
-            f"Taylor truncada: T(x) = {serie_truncada_sympy}\n"
-            f"Área: Integral(f, {latex(a_sym)}, {latex(b_sym)})"
+            f"Función: f(x) = {geo_f_str}\n"
+            f"Taylor truncada: T(x) = {geo_series}\n"
+            f"Área: Integral(f, {geo_a}, {geo_b})"
         )
         
         ###################################################################
