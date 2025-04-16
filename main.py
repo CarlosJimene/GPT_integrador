@@ -3,9 +3,9 @@ from pydantic import BaseModel
 from typing import Union
 from sympy import (
     symbols, sympify, integrate, sqrt, pi, erf, latex, simplify,
-    factorial, Function, Derivative, Add, Mul, Pow
+    factorial, Function, Derivative, oo, limit as sym_limit
 )
-from sympy.printing.pycode import pycode
+from sympy.calculus.util import singularities
 from scipy.integrate import quad
 import numpy as np
 import random
@@ -19,11 +19,8 @@ class InputDatos(BaseModel):
     b: Union[str, float]
     n_terminos: int = 7
 
-
 ##############################################################################
 # 1) DICCIONARIO DE SERIES CONOCIDAS
-#    Si la función introducida coincide exactamente con una de las claves,
-#    se utilizará la serie infinita específica aquí.
 ##############################################################################
 known_infinite_series = {
     "exp(-x**2)": r"$$ e^{-x^2} \;=\; \sum_{n=0}^{\infty} \frac{(-1)^n x^{2n}}{n!} $$",
@@ -35,7 +32,6 @@ known_infinite_series = {
 
 ##############################################################################
 # 2) DICCIONARIO DE FUNCIONES ESPECIALES
-#    Se agregan definiciones para "erf", "li", "Gamma", "2F1", "1F2", etc.
 ##############################################################################
 special_functions = {
     "erf": {
@@ -51,56 +47,110 @@ special_functions = {
         "explanation": "La función Gamma generaliza la noción de factorial a números reales y complejos."
     },
     "2F1": {
-        "definition": r"$$ {}_{2}F_{1}(a,b;c;z) = \sum_{n=0}^{\infty} \frac{(a)_n (b)_n}{(c)_n} \frac{z^n}{n!} $$",
+        "definition": r"$$ {}_{2}F_{1}(a,b;c;z) = \sum_{n=0}^{\infty} \frac{(a)_n (b)_n}{(c)_n}\frac{z^n}{n!} $$",
         "explanation": "La función hipergeométrica {}_{2}F_{1} es una de las más generales en el análisis matemático."
     },
     "1F2": {
-        "definition": r"$$ {}_{1}F_{2}(a;b,c;z) = \sum_{n=0}^{\infty} \frac{(a)_n}{(b)_n (c)_n} \frac{z^n}{n!} $$",
+        "definition": r"$$ {}_{1}F_{2}(a;b,c;z) = \sum_{n=0}^{\infty} \frac{(a)_n}{(b)_n (c)_n}\frac{z^n}{n!} $$",
         "explanation": "La función hipergeométrica generalizada {}_{1}F_{2} se utiliza en múltiples contextos de análisis matemático."
     }
 }
 
-
+##############################################################################
+# 3) FUNCIÓN AUXILIAR: expr_to_geogebra
+##############################################################################
 def expr_to_geogebra(expr):
     """
     Convierte una expresión Sympy en un string adecuado para GeoGebra,
     colocando paréntesis de forma que no se confundan los exponentes.
     """
     if expr.is_Add:
-        # Suma de términos, unimos con " + " (respetar signos si hay negativos)
-        # Observación: si un término es negativo, Sympy lo manejará como Add(..., -Term)
-        # Podemos filtrar los sign con str() si se desea. Por simplicidad, unimos con " + " y el str() mostrará el signo.
         return " + ".join(expr_to_geogebra(arg) for arg in expr.args)
     elif expr.is_Mul:
-        # Producto de factores
-        # Ej: 2*x -> "2*(x)"
-        # Ej: -1*x^2 -> "(-1)*(x^2)"
-        # Observa que multiplicación puede incluir signos.
         factors = expr.as_ordered_factors()
         return "*".join(f"({expr_to_geogebra(fac)})" for fac in factors)
     elif expr.is_Pow:
-        # Potencia base^exp
         base, exponent = expr.as_base_exp()
         return f"({expr_to_geogebra(base)})^({expr_to_geogebra(exponent)})"
     else:
-        # Números, símbolos, etc.
         return str(expr)
 
+##############################################################################
+# 4) FUNCIÓN AUXILIAR: format_series_factorials
+##############################################################################
+def format_series_factorials(expr):
+    """
+    Convierte una expresión polinómica (serie truncada) en un string en el que cada término
+    se expresa en forma: (coeficiente * x^n)/(n!) (si es posible).
+    """
+    terms = expr.as_ordered_terms()
+    new_terms = []
+    for term in terms:
+        coeff, monom = term.as_coeff_Mul()
+        n = 0
+        if monom.has(x):
+            try:
+                n = monom.as_poly(x).degree()
+            except Exception:
+                n = 1
+        if n == 0:
+            term_str = latex(coeff)
+        else:
+            coeff_factor = simplify(coeff * factorial(n))
+            if coeff_factor == 1:
+                term_str = f"\\frac{{x^{{{n}}}}}{{{n}!}}"
+            else:
+                term_str = f"\\frac{{{latex(coeff_factor)} x^{{{n}}}}}{{{n}!}}"
+        new_terms.append(term_str)
+    series_str = " + ".join(new_terms)
+    series_str = series_str.replace("+ -", "- ")
+    return series_str
 
+##############################################################################
+# 5) DETECCIÓN Y TRATAMIENTO DE DISCONTINUIDADES
+##############################################################################
+def tratar_discontinuidades(f, a_eval, b_eval):
+    """
+    Busca singularidades en el intervalo [a_eval, b_eval]. 
+    Si se detecta alguna discontinuidad en la que el límite es infinito,
+    retorna (True, []).
+    Si se detectan discontinuidades removibles o de salto finito, retorna (False, [lista de puntos]).
+    """
+    try:
+        sing_points = singularities(f, x)
+    except Exception:
+        sing_points = set()
+    
+    sing_in_interval = []
+    infinite_disc = False
+    for s in sing_points:
+        try:
+            s_val = float(s.evalf())
+        except Exception:
+            continue
+        if a_eval < s_val < b_eval:
+            L_left = sym_limit(f, x, s, dir='-')
+            L_right = sym_limit(f, x, s, dir='+')
+            if L_left in [oo, -oo] or L_right in [oo, -oo]:
+                infinite_disc = True
+            else:
+                sing_in_interval.append(s_val)
+    return infinite_disc, sorted(sing_in_interval)
+
+##############################################################################
+# 6) ENDPOINT PRINCIPAL
+##############################################################################
 @app.post("/resolver-integral")
 def resolver_integral(datos: InputDatos):
     try:
         ###################################################################
         # A) PROCESAMIENTO INICIAL
         ###################################################################
-        
-        # 1) Procesar la función introducida
         f_str_usuario = datos.funcion.strip()
         f_str = f_str_usuario.replace('^', '**')
         f = sympify(f_str)
-        f_lambda = lambda val: float(f.subs(x, val))
         
-        # 2) Procesar los límites de integración
+        # Procesar los límites
         a_str = str(datos.a)
         b_str = str(datos.b)
         for target in ["raiz de pi", "raíz de pi", "√"]:
@@ -114,14 +164,27 @@ def resolver_integral(datos: InputDatos):
             raise Exception("El límite inferior debe ser menor que el superior.")
         
         ###################################################################
-        # B) PRIMITIVA E INTEGRAL DEFINIDA
+        # B) TRATAMIENTO DE DISCONTINUIDADES
         ###################################################################
+        infinite_disc, sing_in_interval = tratar_discontinuidades(f, a_eval, b_eval)
+        if infinite_disc:
+            return {"error": "La función presenta al menos una discontinuidad infinita en el intervalo especificado. No es posible calcular el área."}
         
-        # 3) Calcular la primitiva (antiderivada)
+        # Actualizar la función evaluadora para tratar indeterminaciones removibles.
+        def f_lambda_mod(val):
+            for s in sing_in_interval:
+                if abs(val - s) < 1e-8:
+                    return float(sym_limit(f, x, s, dir='+'))
+            return float(f.subs(x, val))
+        f_lambda = f_lambda_mod
+        
+        ###################################################################
+        # C) PRIMITIVA E INTEGRAL DEFINIDA
+        ###################################################################
         primitiva = integrate(f, x)
         primitiva_latex = latex(primitiva)
         
-        # 3.1) Detectar y explicar funciones especiales en la primitiva
+        # Detectar funciones especiales en la primitiva
         definicion_especial = ""
         detection_map = {
             "Gamma":  r"\Gamma",
@@ -130,12 +193,8 @@ def resolver_integral(datos: InputDatos):
             "2F1":    r"{ }_{2}F_{1}",
             "1F2":    r"{ }_{1}F_{2}"
         }
-        
         for name, info in special_functions.items():
-            if name in detection_map:
-                latex_key = detection_map[name]
-            else:
-                latex_key = name
+            latex_key = detection_map.get(name, name)
             if latex_key in primitiva_latex:
                 definicion_especial += (
                     f"\n\n#### Definición de la función especial \\({name}\\):\n"
@@ -143,14 +202,12 @@ def resolver_integral(datos: InputDatos):
                     f"{info['explanation']}\n"
                 )
         
-        # 4) Valor simbólico de la integral definida
         try:
             valor_simb = simplify(primitiva.subs(x, b_sym) - primitiva.subs(x, a_sym))
             valor_simbolico = latex(valor_simb)
         except Exception as e:
             valor_simbolico = f"Error al evaluar simbólicamente: {e}"
         
-        # 5) Valor numérico exacto
         try:
             valor_num_expr = integrate(f, (x, a_sym, b_sym))
             valor_numerico = float(valor_num_expr.evalf())
@@ -159,62 +216,60 @@ def resolver_integral(datos: InputDatos):
             valor_numerico = None
             valor_numerico_latex = "$$ Error en la integral definida: Cannot convert expression to float $$"
         
-        # 6) Integral definida (LaTeX)
         integral_definida = f"$$ \\int_{{{latex(a_sym)}}}^{{{latex(b_sym)}}} {latex(f)} \\, dx $$"
         
         ###################################################################
-        # C) SERIES DE TAYLOR
+        # D) SERIES DE TAYLOR
         ###################################################################
-        
-        # 7) Serie de Taylor "general"
         if f_str in known_infinite_series:
             serie_taylor_general = known_infinite_series[f_str]
-            explicacion_taylor_general = (
-                f"La función {f_str_usuario} es reconocida, y su serie de Taylor alrededor de x=0 es conocida."
-            )
+            explicacion_taylor_general = f"La función {f_str_usuario} es reconocida, y su serie de Taylor alrededor de x=0 es conocida."
         else:
-            serie_taylor_general = (
-                r"$$ f(x) = \sum_{n=0}^{\infty} \frac{f^{(n)}(0)}{n!} \, x^n $$"
-            )
+            serie_taylor_general = r"$$ f(x) = \sum_{n=0}^{\infty} \frac{f^{(n)}(0)}{n!} \, x^n $$"
             explicacion_taylor_general = (
                 "No se ha encontrado una serie conocida para esta función, "
                 "por lo que se muestra la fórmula general derivativa."
             )
         
-        # 8) Serie de Taylor finita (truncada) en términos de factoriales
         serie_sympy = f.series(x, 0, datos.n_terminos)
         serie_truncada_sympy = serie_sympy.removeO()
-        serie_taylor_finita = f"$$ {latex(serie_truncada_sympy)} $$"
+        # Formatear la serie truncada en términos de factoriales (T1(x))
+        serie_taylor_finita = f"$$ T1(x) = {format_series_factorials(serie_truncada_sympy)} $$"
         
         ###################################################################
-        # D) INTEGRAL DE LA SERIE TRUNCADA
+        # E) INTEGRAL DE LA SERIE TRUNCADA (T2(x))
         ###################################################################
-        
         try:
             integral_serie = integrate(serie_truncada_sympy, x)
-            integral_serie_taylor = f"$$ {latex(integral_serie)} $$"
+            integral_serie_formatted = format_series_factorials(integral_serie)
+            integral_serie_taylor = f"$$ T2(x) = {integral_serie_formatted} $$"
         except Exception as e:
             integral_serie_taylor = f"Error al integrar la serie: {e}"
         
         ###################################################################
-        # E) MÉTODOS NUMÉRICOS
+        # F) MÉTODOS NUMÉRICOS CON TRATAMIENTO DE DISCONTINUIDADES FINITAS
         ###################################################################
+        subintervals = [a_eval] + sing_in_interval + [b_eval]
+        num_integral = 0
+        for i in range(len(subintervals)-1):
+            r, err = quad(f_lambda, subintervals[i], subintervals[i+1])
+            num_integral += r
         
-        puntos = np.linspace(a_eval, b_eval, 1001)
         try:
+            puntos = np.linspace(a_eval, b_eval, 1001)
             valores = np.array([f_lambda(v) for v in puntos])
             simpson_val = np.trapz(valores, puntos)
-        except Exception as e:
+        except Exception:
             simpson_val = None
         
         try:
             romberg_val, _ = quad(f_lambda, a_eval, b_eval)
-        except Exception as e:
+        except Exception:
             romberg_val = None
         
         try:
             cuadratura_gaussiana = romberg_val
-        except Exception as e:
+        except Exception:
             cuadratura_gaussiana = None
         
         try:
@@ -222,38 +277,39 @@ def resolver_integral(datos: InputDatos):
                 f_lambda(random.uniform(a_eval, b_eval))
                 for _ in range(10000)
             ]) * (b_eval - a_eval)
-        except Exception as e:
+        except Exception:
             monte_carlo_val = None
         
         metodos = {
-            "simpson": {
-                "value": simpson_val,
-                "n_points": 1001
-            },
+            "simpson": {"value": simpson_val, "n_points": 1001},
             "romberg": romberg_val,
             "cuadratura_gaussiana": cuadratura_gaussiana,
             "montecarlo": monte_carlo_val
         }
         
         ###################################################################
-        # F) TEXTO PARA GEOGEBRA
+        # G) TEXTO PARA GEOGEBRA
         ###################################################################
-        # Usamos la función expr_to_geogebra para evitar confusión de exponentes.
         geo_f_str = f_str_usuario.replace('**', '^')
-        geo_series = expr_to_geogebra(serie_truncada_sympy)
+        geo_series_T1 = format_series_factorials(serie_truncada_sympy)
+        try:
+            T2_expr = integrate(serie_truncada_sympy, x)
+            geo_series_T2 = format_series_factorials(T2_expr)
+        except Exception:
+            geo_series_T2 = latex(integrate(serie_truncada_sympy, x))
+        
         geo_a = expr_to_geogebra(a_sym)
         geo_b = expr_to_geogebra(b_sym)
-        
         texto_geogebra = (
             f"Función: f(x) = {geo_f_str}\n"
-            f"Taylor truncada: T(x) = {geo_series}\n"
+            f"T1(x) = {geo_series_T1}\n"
+            f"T2(x) = {geo_series_T2}\n"
             f"Área: Integral(f, {geo_a}, {geo_b})"
         )
         
         ###################################################################
-        # G) JSON DE RESPUESTA
+        # H) JSON DE RESPUESTA
         ###################################################################
-        
         resultado = {
             "funcion_introducida": f_str,
             "primitiva_real": f"$$ {primitiva_latex} $$",
@@ -262,20 +318,14 @@ def resolver_integral(datos: InputDatos):
             "valor_numerico_exacto": valor_numerico,
             "valor_numerico_exacto_latex": valor_numerico_latex,
             "integral_definida": integral_definida,
-            
-            # Serie de Taylor (infinita) y su explicación
             "serie_taylor_general": serie_taylor_general,
             "explicacion_taylor_general": explicacion_taylor_general,
-            
-            # Serie de Taylor finita (la truncada)
             "serie_taylor_finita": serie_taylor_finita,
             "integral_serie_taylor": integral_serie_taylor,
-            
             "metodos_numericos": metodos,
             "advertencias": [],
             "texto_geogebra": texto_geogebra
         }
-        
         return resultado
 
     except Exception as e:
