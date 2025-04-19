@@ -11,7 +11,6 @@
 - ∫ Cálculo de la integral definida entre dos límites
 - 🔁 Aproximación con series de Taylor de orden configurable
 - 📊 Comparación con métodos numéricos: Simpson, Romberg, Cuadratura Gaussiana y Monte Carlo
-- 🖼 Generación automática de gráficas en `/static/taylor.png`
 - 📎 Expresiones para copiar directamente en [GeoGebra](https://www.geogebra.org/graphing)
 
 ---
@@ -23,7 +22,6 @@
 - SymPy
 - NumPy
 - SciPy
-- Matplotlib
 
 ---
 
