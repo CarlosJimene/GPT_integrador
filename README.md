@@ -1,6 +1,6 @@
 # 📐 GPT_Integrador
 
-**GPT_Integrador** es una API desarrollada con FastAPI que permite calcular integrales definidas de funciones simbólicas, detectar primitivas (elementales o especiales), y realizar aproximaciones mediante series de Taylor. También genera gráficas comparativas y expresiones listas para usar en GeoGebra.
+**GPT_Integrador** es una API desarrollada con FastAPI que permite calcular integrales definidas de funciones simbólicas, detectar primitivas (elementales o especiales), y realizar aproximaciones mediante series de Taylor, además de aproximar el valor de la integral definida mediante diversos métodos numéricos. También genera gráficas comparativas y expresiones listas para usar en GeoGebra.
 
 ---
 
