@@ -9,10 +9,22 @@ from sympy.calculus.util import singularities
 from scipy.integrate import quad
 import numpy as np
 import random
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+import json  # ya lo tenés, pero asegúrate que esté
+
+
+
 
 app = FastAPI()
 x = symbols('x')
-
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"]
+)
 class InputDatos(BaseModel):
     funcion: str
     a: Union[str, float]
@@ -326,7 +338,9 @@ def resolver_integral(datos: InputDatos):
             "advertencias": [],
             "texto_geogebra": texto_geogebra
         }
-        return resultado
+        # Serialización segura para evitar problemas con tipos como np.float64, None, etc.
+        return JSONResponse(content=json.loads(json.dumps(resultado, default=str)))
+
 
     except Exception as e:
         return {"error": str(e)}
