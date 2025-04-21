@@ -4,4 +4,3 @@ pydantic
 numpy
 scipy
 sympy
-matplotlib
