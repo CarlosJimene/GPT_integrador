@@ -9,27 +9,15 @@ from sympy.calculus.util import singularities
 from scipy.integrate import quad
 import numpy as np
 import random
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
-import json  # ya lo tenés, pero asegúrate que esté
-
-
-
 
 app = FastAPI()
 x = symbols('x')
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"]
-)
+
 class InputDatos(BaseModel):
     funcion: str
     a: Union[str, float]
     b: Union[str, float]
-    n_terminos: int = 7
+    n_terminos: int = 15
 
 ##############################################################################
 # 1) DICCIONARIO DE SERIES CONOCIDAS
@@ -39,7 +27,13 @@ known_infinite_series = {
     "cos(x**2)":  r"$$ \cos(x^2) \;=\; \sum_{k=0}^{\infty} \frac{(-1)^k x^{4k}}{(2k)!} $$",
     "sin(x**2)":  r"$$ \sin(x^2) \;=\; \sum_{k=0}^{\infty} \frac{(-1)^k x^{4k+2}}{(2k+1)!} $$",
     "cos(x)":     r"$$ \cos(x) \;=\; \sum_{k=0}^{\infty} \frac{(-1)^k x^{2k}}{(2k)!} $$",
-    "sin(x)":     r"$$ \sin(x) \;=\; \sum_{k=0}^{\infty} \frac{(-1)^k x^{2k+1}}{(2k+1)!} $$"
+    "sin(x)":     r"$$ \sin(x) \;=\; \sum_{k=0}^{\infty} \frac{(-1)^k x^{2k+1}}{(2k+1)!} $$",
+    "ln(1+x)": r"$$ \ln(1 + x) = \sum_{n=1}^{\infty} (-1)^{n+1} \frac{x^n}{n}, \quad -1 < x \leq 1 $$",
+    "1/(1-x)": r"$$ \frac{1}{1 - x} = \sum_{n=0}^{\infty} x^n, \quad |x| < 1 $$",
+    "arctan(x)": r"$$ \arctan(x) = \sum_{n=0}^{\infty} (-1)^n \frac{x^{2n+1}}{2n+1}, \quad |x| \leq 1 $$",
+    "sinh(x)": r"$$ \sinh(x) = \sum_{n=0}^{\infty} \frac{x^{2n+1}}{(2n+1)!}, \quad x \in \mathbb{R} $$",
+    "cosh(x)": r"$$ \cosh(x) = \sum_{n=0}^{\infty} \frac{x^{2n}}{(2n)!}, \quad x \in \mathbb{R} $$"
+
 }
 
 ##############################################################################
@@ -65,7 +59,28 @@ special_functions = {
     "1F2": {
         "definition": r"$$ {}_{1}F_{2}(a;b,c;z) = \sum_{n=0}^{\infty} \frac{(a)_n}{(b)_n (c)_n}\frac{z^n}{n!} $$",
         "explanation": "La función hipergeométrica generalizada {}_{1}F_{2} se utiliza en múltiples contextos de análisis matemático."
+    },
+    "Beta": {
+        "definition": r"$$ B(x, y) = \int_0^1 t^{x-1}(1 - t)^{y-1} \,dt = \frac{\Gamma(x)\Gamma(y)}{\Gamma(x + y)} $$",
+        "explanation": "La función beta se define para valores reales positivos y está estrechamente relacionada con la función Gamma. Se usa frecuentemente en integración de funciones racionales con potencias mediante cambios de variable."
+    },
+    "pFq": {
+        "definition": r"$$ {}_pF_q(a_1,\dots,a_p;\, b_1,\dots,b_q;\, z) = \sum_{n=0}^{\infty} \frac{(a_1)_n \cdots (a_p)_n}{(b_1)_n \cdots (b_q)_n} \frac{z^n}{n!} $$",
+        "explanation": "La función hipergeométrica generalizada aparece en integrales complejas, especialmente con funciones racionales o radicales sin primitiva elemental. El símbolo de Pochhammer se utiliza en sus coeficientes."
+    },
+    "Dawson": {
+        "definition": r"$$ F(x) = e^{-x^2} \int_0^x e^{t^2} \,dt $$",
+        "explanation": "La función de Dawson surge en contextos de difusión térmica y física cuántica. Es útil para representar integrales de tipo error con peso exponencial invertido."
+    },
+    "FresnelC": {
+        "definition": r"$$ C(x) = \int_0^x \cos\left(\frac{\pi t^2}{2}\right)\,dt $$",
+        "explanation": "La función de Fresnel para el coseno describe la acumulación de oscilaciones cosenoidales con fase cuadrática. Se aplica en óptica y teoría de difracción."
+    },
+    "FresnelS": {
+        "definition": r"$$ S(x) = \int_0^x \sin\left(\frac{\pi t^2}{2}\right)\,dt $$",
+        "explanation": "La función de Fresnel para el seno modela la acumulación de oscilaciones senoidales con fase cuadrática. Se emplea en fenómenos ondulatorios complejos."
     }
+
 }
 
 ##############################################################################
@@ -203,7 +218,12 @@ def resolver_integral(datos: InputDatos):
             "erf":    r"erf",
             "li":     r"li",
             "2F1":    r"{ }_{2}F_{1}",
-            "1F2":    r"{ }_{1}F_{2}"
+            "1F2":    r"{ }_{1}F_{2}",
+            "Beta":      r"B",
+            "pFq":       r"{ }_{p}F_{q}",
+            "Dawson":    r"F",
+            "FresnelC":  r"C",
+            "FresnelS":  r"S"
         }
         for name, info in special_functions.items():
             latex_key = detection_map.get(name, name)
@@ -338,9 +358,7 @@ def resolver_integral(datos: InputDatos):
             "advertencias": [],
             "texto_geogebra": texto_geogebra
         }
-        # Serialización segura para evitar problemas con tipos como np.float64, None, etc.
-        return JSONResponse(content=json.loads(json.dumps(resultado, default=str)))
-
+        return resultado
 
     except Exception as e:
         return {"error": str(e)}
